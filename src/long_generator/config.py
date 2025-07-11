@@ -41,7 +41,7 @@ class Config:
     IMAGE_SEARCH_ENDPOINT = "http://65d27a3b.r23.cpolar.top/search/images"
 
     # 默认检索参数
-    SEARCH_DEFAULT_TOP_K = 5
+    SEARCH_DEFAULT_TOP_K = 15
     IMAGE_SEARCH_MIN_SCORE = 0.4
 
     # MinIO云存储配置

@@ -3,7 +3,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { MCPClient } from './MCPClient.js';
-import { MinIOHelper } from './MinIOHelper.js';
+
 import { config } from './config.js';
 import fs from 'fs/promises';
 import fsSync from 'fs';
@@ -164,7 +164,7 @@ class MCPWebServer {
         this.app = express();
         this.port = 3000;
         this.mcpClient = null;
-        this.minioHelper = new MinIOHelper();
+
 
         this.setupMiddleware();
         this.setupRoutes();
@@ -279,14 +279,8 @@ class MCPWebServer {
         this.app.post('/api/upload', upload.single('file'), this.handleFileUpload.bind(this));
         this.app.get('/api/files/:filename', this.handleFileAccess.bind(this));
         this.app.post('/api/files/convert', this.handleFileConvert.bind(this));
-        this.app.get('/api/download/*', this.handleMinIODownload.bind(this));
         this.app.get('/api/cpolar/test', this.handleCpolarTest.bind(this));
         this.app.get('/api/status', this.handleStatus.bind(this));
-
-        // MinIO-specific routes
-        this.app.get('/api/minio/files', this.handleMinIOListFiles.bind(this));
-        this.app.delete('/api/minio/files/:filename', this.handleMinIODeleteFile.bind(this));
-        this.app.get('/api/minio/health', this.handleMinIOHealth.bind(this));
 
         // Serve uploaded files
         this.app.use('/uploads', express.static(uploadsDir));
@@ -754,11 +748,6 @@ class MCPWebServer {
                 totalIterations: 1
             };
 
-            // Check if response contains MinIO paths or download URLs
-            const minioPathMatch = result.response.match(/minio:\/\/([^\s]+\.(docx|pdf|txt|xlsx|doc))/i);
-            const downloadUrlMatch = result.response.match(/https?:\/\/[^\s]+\.(docx|pdf|txt|xlsx|doc)/i);
-            // Handle server-generated file paths (like /minio/download/...)
-            const serverPathMatch = result.response.match(/\/minio\/download\/[^\s]*?([^\/\s]+\.(docx|pdf|txt|xlsx|doc))/i);
             // Handle local file paths 
             const localPathMatch = result.response.match(/`([^`]*\.(docx|pdf|txt|xlsx|doc))`/i);
 
@@ -768,50 +757,10 @@ class MCPWebServer {
                 iterations: result.totalIterations
             };
 
-            // Handle MinIO paths (minio://)
-            if (minioPathMatch) {
-                const filename = minioPathMatch[1];
-                responseData.downloadUrl = `${req.protocol}://${req.get('host')}/api/download/${filename}`;
-                responseData.filename = filename;
-                responseData.minioPath = `minio://${filename}`;
-                responseData.message = "Document generated successfully";
-
-                // Update response text to include download link
-                responseData.response = result.response.replace(
-                    minioPathMatch[0],
-                    `[Download ${filename}](${responseData.downloadUrl})`
-                );
-            }
-            // Handle server-generated paths (/minio/download/...)
-            else if (serverPathMatch) {
-                const fullPath = serverPathMatch[0]; // e.g., "/minio/download/mcp-files/generated/file.docx"
-                const pathParts = fullPath.split('/');
-                // Extract everything after "/minio/download/mcp-files/"
-                const bucketIndex = pathParts.indexOf('mcp-files');
-                const minioKey = pathParts.slice(bucketIndex + 1).join('/'); // e.g., "generated/file.docx"
-                const filename = pathParts[pathParts.length - 1]; // Just the filename for display
-
-                responseData.downloadUrl = `${req.protocol}://${req.get('host')}/api/download/${minioKey}`;
-                responseData.filename = filename;
-                responseData.minioKey = minioKey;
-                responseData.message = "Document generated successfully";
-
-                // Update response text to include download link
-                responseData.response = result.response.replace(
-                    serverPathMatch[0],
-                    `[Download ${filename}](${responseData.downloadUrl})`
-                );
-            }
-            // Handle direct download URLs  
-            else if (downloadUrlMatch) {
-                responseData.downloadUrl = downloadUrlMatch[0];
-                responseData.filename = downloadUrlMatch[0].split('/').pop();
-                responseData.message = "Document generated successfully";
-            }
             // Handle local paths (quoted)
-            else if (localPathMatch) {
+            if (localPathMatch) {
                 const filename = localPathMatch[1].split('/').pop();
-                responseData.downloadUrl = `${req.protocol}://${req.get('host')}/api/download/${filename}`;
+                responseData.downloadUrl = `${req.protocol}://${req.get('host')}/api/files/${filename}`;
                 responseData.filename = filename;
                 responseData.message = "Document generated successfully";
 
@@ -1023,23 +972,6 @@ class MCPWebServer {
         try {
             const { filename } = req.params;
 
-            // Try MinIO first
-            try {
-                const fileBuffer = await this.minioHelper.getFileBuffer(filename);
-                const fileInfo = await this.minioHelper.getFileInfo(filename);
-
-                res.set({
-                    'Content-Type': fileInfo.mimetype,
-                    'Content-Length': fileInfo.size,
-                    'Cache-Control': 'max-age=3600'
-                });
-
-                res.send(fileBuffer);
-                return;
-            } catch (minioError) {
-                console.log(`📁 File not found in MinIO, trying local storage: ${filename}`);
-            }
-
             // Fallback to local storage for backward compatibility
             const filePath = path.join(uploadsDir, filename);
             await fs.access(filePath);
@@ -1070,37 +1002,7 @@ class MCPWebServer {
         }
     }
 
-    async handleMinIODownload(req, res) {
-        try {
-            // Extract the full path from wildcard route (everything after /api/download/)
-            const minioKey = req.params[0];
-            const filename = minioKey.split('/').pop(); // Extract just the filename for the download header
 
-            console.log(`📥 Web API: Download request for MinIO file: ${minioKey}`);
-
-            // Get file from MinIO using the full key
-            const fileBuffer = await this.minioHelper.getFileBuffer(minioKey);
-            const fileInfo = await this.minioHelper.getFileInfo(minioKey);
-
-            // Set appropriate headers for file download
-            res.set({
-                'Content-Type': fileInfo.mimetype || 'application/octet-stream',
-                'Content-Length': fileInfo.size,
-                'Content-Disposition': `attachment; filename="${filename}"`,
-                'Cache-Control': 'no-cache'
-            });
-
-            console.log(`✅ Serving download: ${filename} from ${minioKey} (${fileInfo.size} bytes)`);
-            res.send(fileBuffer);
-
-        } catch (error) {
-            console.error('❌ MinIO download error:', error);
-            res.status(404).json({
-                success: false,
-                error: 'File not found in MinIO: ' + error.message
-            });
-        }
-    }
 
     async handleCpolarTest(req, res) {
         try {
@@ -1177,14 +1079,12 @@ class MCPWebServer {
 
     async handleStatus(req, res) {
         try {
-            const minioHealth = await this.minioHelper.healthCheck();
             const status = {
                 mcpClient: !!this.mcpClient,
                 connected: this.mcpClient ? this.mcpClient.clients.size > 0 : false,
                 servers: this.getServerInfo(),
                 tools: this.mcpClient ? this.mcpClient.allTools.length : 0,
-                uptime: process.uptime(),
-                minio: minioHealth
+                uptime: process.uptime()
             };
 
             res.json({
@@ -1201,55 +1101,11 @@ class MCPWebServer {
         }
     }
 
-    async handleMinIOListFiles(req, res) {
-        try {
-            const files = await this.minioHelper.listFiles();
-            res.json({
-                success: true,
-                files: files,
-                count: files.length
-            });
-        } catch (error) {
-            console.error('❌ MinIO list files error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Failed to list MinIO files: ' + error.message
-            });
-        }
-    }
 
-    async handleMinIODeleteFile(req, res) {
-        try {
-            const { filename } = req.params;
-            await this.minioHelper.deleteFile(filename);
-            res.json({
-                success: true,
-                message: `File ${filename} deleted from MinIO`
-            });
-        } catch (error) {
-            console.error('❌ MinIO delete file error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Failed to delete MinIO file: ' + error.message
-            });
-        }
-    }
 
-    async handleMinIOHealth(req, res) {
-        try {
-            const health = await this.minioHelper.healthCheck();
-            res.json({
-                success: true,
-                health: health
-            });
-        } catch (error) {
-            console.error('❌ MinIO health check error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'MinIO health check failed: ' + error.message
-            });
-        }
-    }
+
+
+
 
     getServerInfo() {
         // Read directly from the JSON config file to ensure fresh data
@@ -1281,11 +1137,6 @@ class MCPWebServer {
 
     async start() {
         try {
-            // Initialize MinIO first
-            console.log('🚀 Initializing MinIO...');
-            await this.minioHelper.initialize();
-            console.log('✅ MinIO initialized');
-
             // Initialize MCP client on startup
             console.log('🚀 Initializing MCP Client...');
             this.mcpClient = new MCPClient(config.openRouterApiKey);
@@ -1301,12 +1152,9 @@ class MCPWebServer {
                 console.log(`🔧 API Base: http://localhost:${this.port}/api`);
                 console.log(`🛠️  Tools Available: ${this.mcpClient.allTools.length}`);
                 console.log(`🔗 Servers Connected: ${this.mcpClient.clients.size}`);
-                console.log(`📦 MinIO Bucket: ${config.minio.bucket}`);
-                console.log(`🌐 MinIO URL: http://${config.minio.endPoint}:${config.minio.port}`);
                 console.log('='.repeat(60));
                 console.log('💡 Open your browser and start chatting with AI!');
                 console.log('💡 Use the side panel to manage MCP tools and servers.');
-                console.log('💡 Files are now stored in MinIO object storage!');
             });
 
         } catch (error) {
@@ -1336,4 +1184,4 @@ process.on('SIGTERM', () => server.stop());
 // Start the server
 server.start();
 
-export { MCPWebServer }; 
+export { MCPWebServer };

@@ -268,13 +268,18 @@ class LongDocumentGenerator:
                     chapter['content'] = "根据现有资料，暂未找到关于本章节的详细信息。"
                 else:
                     raw_info = "\n\n---\n\n".join(knowledge_pieces)
-                    rewrite_prompt = f"""你是一位经验丰富的文物影响评估专家。
-这里有一份关于“{chapter_title}”的原始资料。请你严格依据这些资料，并遵循所有专业报告的写作规范（客观语气、专业术语、标准格式等），将其改写和组织成一段格式严谨、文笔流畅的正式评估报告章节。
+                    key_points_text = ""
+                    if chapter.get("key_points"):
+                        points = "\n".join(f"- {p}" for p in chapter["key_points"])
+                        key_points_text = f"请确保内容包含以下要点，并使用Markdown的三级标题（###）作为各要点的副标题：\n{points}\n"
 
+                    rewrite_prompt = f"""你是一位经验丰富的文物影响评估专家，你的任务是撰写一份详尽的报告章节。
+这里有一份关于“{chapter_title}”的原始资料。请你严格依据这些资料，并遵循专业报告的写作规范，将其组织成一段内容详实、论述充分、格式严谨的正式评估报告章节。在忠于原文信息的基础上，你可以进行合理的扩展和详细阐述，确保内容的深度和完整性。
+{key_points_text}
 【原始资料】
 {raw_info}
 
-请直接输出改写后的正文内容，不要添加任何额外的解释或标题。
+请直接输出撰写完成的正文内容，确保内容不少于800字，不要添加任何额外的解释或标题。
 """
                     response = call_ai_model(rewrite_prompt)
                     chapter['content'] = response.get('text', '')
@@ -285,30 +290,32 @@ class LongDocumentGenerator:
                 scoped_query = f"{project_name} {chapter_title}".strip()
                 knowledge_pieces = search_vectordata(query=scoped_query, top_k=Config.SEARCH_DEFAULT_TOP_K)
 
-                clean_outline_for_context = [
-                    {"title": ch.get("title"), "key_points": ch.get("key_points")} 
-                    for ch in chapters
-                ]
-                base_context = f"这是全文大纲的结构：{json.dumps(clean_outline_for_context, ensure_ascii=False)}\n"
-
+                base_context = ""
                 if i == 0:
                     print("--> 检测到为第一章，调用get_summary()获取开篇总结...")
                     initial_summary = get_summary()
                     if initial_summary:
-                        base_context += f"\n请基于以下核心总结，为整个报告撰写一个强有力的开篇：\n“{initial_summary}”\n"
+                        base_context = f"\n请基于以下核心总结，为整个报告撰写一个强有力的开篇：\n“{initial_summary}”\n"
                 else: 
                     previous_summary = chapters[i - 1].get('summary', '')
                     if previous_summary:
-                        base_context += f"\n请注意：上一章的核心内容总结为：“{previous_summary}”。请确保本章的开头能与此形成自然过渡。\n"
+                        base_context = f"\n请注意：上一章的核心内容总结为：“{previous_summary}”。请确保本章的开头能与此形成自然过渡。\n"
                     else:
-                        base_context += f"前一章是关于 '{chapters[i - 1].get('title', '')}' 的。\n"
+                        base_context = f"前一章是关于 '{chapters[i - 1].get('title', '')}' 的。\n"
 
                 if knowledge_pieces:
                     knowledge_str = "\n\n---\n\n".join(knowledge_pieces)
                     base_context += f"\n在撰写本章时，请重点参考以下背景资料以确保内容的准确性和深度：{knowledge_str}\n"
 
-                prompt = f"""你是一位经验丰富的文物影响评估专家...（省略以保持简洁）...
-请直接输出“{chapter_title}”这一章节的正文内容，不要在开头重复章节标题。
+                key_points_text = ""
+                if chapter.get("key_points"):
+                    points = "\n".join(f"- {p}" for p in chapter["key_points"])
+                    key_points_text = f"请确保内容围绕以下要点展开，并使用Markdown的三级标题（###）作为各要点的副标题：\n{points}\n"
+
+                prompt = f"""你是一位经验丰富的文物影响评估专家，你的任务是撰写一份详尽的报告章节。
+请基于上下文和背景资料，撰写“{chapter_title}”这一章节的详细内容。请确保论述充分、逻辑清晰，并对核心观点进行深入的分析和阐述。我们期望这一章的内容是丰富和详实的。
+{key_points_text}
+请直接输出撰写完成的正文内容，确保内容不少于800字，不要在开头重复章节标题。
 """
                 response = call_ai_model(prompt, context=base_context)
                 chapter['content'] = response.get('text', '')
@@ -347,14 +354,13 @@ class LongDocumentGenerator:
         else:
             self.state.update_status("assembling", "所有章节已生成，正在整合文档...", 95)
             chapters = self.state.data['outline']['chapters']
-            clean_outline_for_context = [
-                {"title": ch.get("title"), "key_points": ch.get("key_points")} 
-                for ch in chapters
-            ]
-            final_context_str = json.dumps(clean_outline_for_context, ensure_ascii=False)
 
             if not chapters:
                 print("!! 警告：大纲为空，将生成通用的引言和结论。")
+                final_context_str = ""
+            else:
+                chapter_summaries = [f"第 {i+1} 章 {ch.get('title', '')}: {ch.get('summary', '无摘要')}" for i, ch in enumerate(chapters)]
+                final_context_str = "这是报告各章节的核心摘要：\n" + "\n".join(chapter_summaries)
 
             intro_prompt = """你是一位经验丰富的文物影响评估专家...（省略）..."""
             intro_response = call_ai_model(intro_prompt, context=final_context_str)

@@ -16,7 +16,6 @@
         "cpolar-test": "node cpolar-helper.js test",
         "cpolar-help": "node cpolar-helper.js instructions",
         "web": "node web-server.js",
-        "test-minio": "node test-minio-integration.js",
         "reactagent-server": "python start-reactagent-mcp.py",
         "reactagent-health": "curl http://localhost:8000/health",
         "full-start": "npm run reactagent-server & npm run web",
@@ -26,7 +25,6 @@
         "@modelcontextprotocol/sdk": "^1.0.0",
         "dotenv": "^17.0.1",
         "express": "^4.21.2",
-        "minio": "^8.0.5",
         "multer": "^2.0.1",
         "node-fetch": "^3.3.2"
     },

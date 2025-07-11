@@ -61,3 +61,10 @@ coverage/
 # 系统文件
 .DS_Store
 Thumbs.db 
+
+# 任务和生成文件
+/src/long_generator/tasks/*
+/tasks/*
+
+# 前端文件夹
+frontend/

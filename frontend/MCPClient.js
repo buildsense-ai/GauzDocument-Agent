@@ -6,7 +6,6 @@ import { fileURLToPath } from 'url';
 import { HttpClientTransport } from "./HttpClientTransport.js";
 import { FastAPIMCPClient } from "./FastAPIMCPClient.js";
 import { GeminiLLM } from "./GeminiLLM.js";
-import { MinIOHelper } from "./MinIOHelper.js";
 import { config } from "./config.js";
 // import mcpServers from "./mcp-server-config.js";
 
@@ -20,7 +19,6 @@ export class MCPClient {
         this.clients = new Map();
         this.allTools = [];
         this.config = config;
-        this.minioHelper = new MinIOHelper();
     }
 
     async initialize() {
@@ -295,93 +293,7 @@ Be conversational, helpful, and intelligent about when to use tools.`;
         }
     }
 
-    async processFileArguments(args) {
-        const processedArgs = { ...args };
 
-        // Check for file paths that need to be converted to file content
-        for (const [key, value] of Object.entries(args)) {
-            if (typeof value === 'string') {
-
-                // Handle MinIO file paths (minio://filename)
-                if (value.startsWith('minio://')) {
-                    try {
-                        const fileName = value.replace('minio://', '');
-
-                        // Get file buffer from MinIO
-                        const fileBuffer = await this.minioHelper.getFileBuffer(fileName);
-                        const fileInfo = await this.minioHelper.getFileInfo(fileName);
-                        const base64Content = fileBuffer.toString('base64');
-
-                        // Replace path with comprehensive file information
-                        processedArgs[key] = {
-                            name: fileName,  // Required by enhanced server API
-                            type: 'file_content',
-                            filename: fileName,
-                            content: base64Content,
-                            original_path: value,
-                            public_url: fileInfo.url,
-                            size: fileInfo.size,
-                            mimetype: fileInfo.mimetype,
-                            source: 'minio',
-                            // For servers that can download via HTTP
-                            download_url: fileInfo.url
-                        };
-
-                        console.log(`📁 Converted MinIO file to content: ${fileName} (${fileInfo.size} bytes)`);
-                        console.log(`🌐 Public URL: ${fileInfo.url}`);
-
-                    } catch (error) {
-                        console.error(`❌ Failed to read MinIO file ${value}:`, error);
-                        // Keep original path as fallback
-                    }
-                }
-
-                // Handle legacy local upload paths for backward compatibility
-                else if (value.startsWith('/uploads/')) {
-                    try {
-                        // Convert local upload path to absolute path
-                        const absolutePath = path.join(this.getProjectRoot(), 'uploads', path.basename(value));
-
-                        // Check if file exists
-                        await fsPromises.access(absolutePath);
-
-                        // Read file content as base64
-                        const fileContent = await fsPromises.readFile(absolutePath);
-                        const base64Content = fileContent.toString('base64');
-                        const fileName = path.basename(value);
-
-                        // Determine the public URL for the file
-                        const publicUrl = this.getPublicFileUrl(fileName);
-
-                        // Replace path with comprehensive file information
-                        processedArgs[key] = {
-                            name: fileName,  // Required by enhanced server API
-                            type: 'file_content',
-                            filename: fileName,
-                            content: base64Content,
-                            original_path: value,
-                            public_url: publicUrl,
-                            size: fileContent.length,
-                            source: 'local',
-                            // For servers that prefer simple paths, provide both
-                            local_path: absolutePath,
-                            // For servers that can download via HTTP
-                            download_url: publicUrl
-                        };
-
-                        console.log(`📁 Converted local file to content: ${fileName} (${fileContent.length} bytes)`);
-                        console.log(`🌐 Public URL: ${publicUrl}`);
-
-                    } catch (error) {
-                        console.error(`❌ Failed to read local file ${value}:`, error);
-                        // Keep original path as fallback
-                    }
-                }
-            }
-        }
-
-        return processedArgs;
-    }
 
     getPublicFileUrl(fileName) {
         // Try to determine the public base URL
