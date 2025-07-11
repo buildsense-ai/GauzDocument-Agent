@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>项目选择 - 工程AI助手</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* 主题变量 */
+        :root {
+            --primary-color: #8b5cf6;
+            --primary-hover: #7c3aed;
+            --secondary-color: #a78bfa;
+            --accent-color: #06b6d4;
+            --warning-color: #f59e0b;
+            --error-color: #ef4444;
+            --success-color: #10b981;
+
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --bg-tertiary: #f5f5f5;
+            --bg-hover: #f0f0f0;
+            --bg-active: #e8f0fe;
+
+            --text-primary: #333333;
+            --text-secondary: #666666;
+            --text-tertiary: #999999;
+            --text-inverse: #ffffff;
+
+            --border-color: #e0e0e0;
+            --border-light: #f0f0f0;
+            --border-focus: #1a73e8;
+
+            --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
+            --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.1);
+            --shadow-xl: 0 12px 24px rgba(0, 0, 0, 0.15);
+
+            --gradient-primary: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+            --gradient-card: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+        }
+
+        /* 深色主题 */
+        [data-theme="dark"] {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2d2d2d;
+            --bg-tertiary: #3a3a3a;
+            --bg-hover: #4a4a4a;
+            --bg-active: #2a2a3e;
+
+            --text-primary: #ffffff;
+            --text-secondary: #b3b3b3;
+            --text-tertiary: #808080;
+            --text-inverse: #000000;
+
+            --border-color: #404040;
+            --border-light: #333333;
+            --border-focus: #6366f1;
+
+            --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.3);
+            --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.3);
+            --shadow-xl: 0 12px 24px rgba(0, 0, 0, 0.4);
+
+            --gradient-card: linear-gradient(135deg, #2d2d2d 0%, #3a3a3a 100%);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* 头部 */
+        .header {
+            background: var(--bg-primary);
+            border-bottom: 1px solid var(--border-light);
+            padding: 16px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--primary-color);
+        }
+
+        .user-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--gradient-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-inverse);
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .settings-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 16px;
+            padding: 6px;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .settings-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        /* 主要内容 */
+        .main-content {
+            padding: 32px 0;
+        }
+
+        .page-header {
+            margin-bottom: 32px;
+        }
+
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .title-group {
+            flex: 1;
+        }
+
+        .title {
+            font-size: 28px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .subtitle {
+            font-size: 15px;
+            color: var(--text-secondary);
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .search-toggle {
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 14px;
+            padding: 6px 12px;
+            border-radius: 16px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .search-toggle:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        .search-toggle.active {
+            background: var(--bg-active);
+            color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+        .new-project-btn {
+            background: var(--gradient-primary);
+            color: var(--text-inverse);
+            border: none;
+            padding: 6px 16px;
+            border-radius: 16px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .new-project-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .search-bar {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+            margin-bottom: 0;
+        }
+
+        .search-bar.show {
+            max-height: 60px;
+            margin-bottom: 20px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 14px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            transition: border-color 0.2s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--border-focus);
+        }
+
+        /* 项目网格 */
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            margin-bottom: 40px;
+        }
+
+        .project-card {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .project-card:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
+            border-color: var(--primary-color);
+        }
+
+        .project-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .project-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            background: var(--gradient-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-inverse);
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .project-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .project-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 2px;
+        }
+
+        .project-type {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .project-desc {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .project-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            margin-top: 4px;
+        }
+
+        .indicator-active {
+            background: var(--success-color);
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+        }
+
+        .indicator-pending {
+            background: var(--warning-color);
+            box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+        }
+
+        .indicator-completed {
+            background: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2);
+        }
+
+        .project-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border-light);
+        }
+
+        .meta-stats {
+            display: flex;
+            gap: 12px;
+        }
+
+        .meta-item {
+            font-size: 11px;
+            color: var(--text-tertiary);
+        }
+
+        .meta-value {
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .project-time {
+            font-size: 11px;
+            color: var(--text-tertiary);
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .empty-title {
+            font-size: 18px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .empty-desc {
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .container {
+                padding: 0 16px;
+            }
+
+            .header-row {
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            .header-actions {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .projects-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .title {
+                font-size: 24px;
+            }
+        }
+
+        /* 动画 */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .project-card {
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        .project-card:nth-child(1) {
+            animation-delay: 0.05s;
+        }
+
+        .project-card:nth-child(2) {
+            animation-delay: 0.1s;
+        }
+
+        .project-card:nth-child(3) {
+            animation-delay: 0.15s;
+        }
+
+        .project-card:nth-child(4) {
+            animation-delay: 0.2s;
+        }
+
+        .project-card:nth-child(5) {
+            animation-delay: 0.25s;
+        }
+
+        .project-card:nth-child(6) {
+            animation-delay: 0.3s;
+        }
+
+        /* 设置面板 */
+        .settings-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            z-index: 10000;
+            backdrop-filter: blur(5px);
+        }
+
+        .settings-overlay.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .settings-panel {
+            background: var(--bg-primary);
+            border-radius: 16px;
+            padding: 32px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border-color);
+        }
+
+        .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .settings-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .settings-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .settings-close:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        .settings-section {
+            margin-bottom: 24px;
+        }
+
+        .settings-section-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+
+        .settings-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .settings-item:last-child {
+            border-bottom: none;
+        }
+
+        .settings-item-info {
+            flex: 1;
+        }
+
+        .settings-item-label {
+            font-size: 14px;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .settings-item-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .theme-toggle {
+            display: flex;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 4px;
+            border: 1px solid var(--border-color);
+        }
+
+        .theme-option {
+            padding: 8px 12px;
+            border: none;
+            background: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .theme-option.active {
+            background: var(--primary-color);
+            color: var(--text-inverse);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .settings-btn {
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 16px;
+            padding: 8px;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .settings-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            border-color: var(--primary-color);
+        }
+
+        /* 新建项目按钮样式 */
+        .new-project-btn {
+            background: var(--gradient-primary);
+            color: var(--text-inverse);
+            border: none;
+            padding: 6px 16px;
+            border-radius: 16px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .new-project-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-sm);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">🏗️ 工程AI助手</div>
+                <div class="user-section">
+                    <div class="user-avatar">张</div>
+                    <button class="settings-btn" onclick="openSettings()">⚙️</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="main-content">
+            <div class="page-header">
+                <div class="header-row">
+                    <div class="title-group">
+                        <h1 class="title">项目</h1>
+                        <p class="subtitle">选择一个项目开始工作</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="search-toggle" id="searchToggle">
+                            <span>🔍</span>
+                            <span>搜索</span>
+                        </button>
+                        <button class="new-project-btn" onclick="createNewProject()">
+                            <span>➕</span>
+                            <span>新建</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="search-bar" id="searchBar">
+                    <input type="text" class="search-input" placeholder="搜索项目..." id="searchInput">
+                </div>
+            </div>
+
+            <div class="projects-grid">
+                <div class="project-card" onclick="selectProject('liushi_ancestral_hall')">
+                    <div class="project-header">
+                        <div class="project-icon">🏛️</div>
+                        <div class="project-info">
+                            <div class="project-title">刘氏宗祠</div>
+                            <div class="project-type">文物修缮</div>
+                            <div class="project-desc">明代建筑群修缮项目，包括主祠堂、配殿及院落的保护性修复，传承历史文化</div>
+                        </div>
+                        <div class="project-indicator indicator-pending"></div>
+                    </div>
+                    <div class="project-meta">
+                        <div class="meta-stats">
+                            <div class="meta-item">
+                                <span class="meta-value" id="liushi-files">0</span> 文件
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-value" id="liushi-chats">0</span> 对话
+                            </div>
+                        </div>
+                        <div class="project-time">刚刚创建</div>
+                    </div>
+                </div>
+
+                <div class="project-card" onclick="selectProject('yiling_ancient_temple')">
+                    <div class="project-header">
+                        <div class="project-icon">🏯</div>
+                        <div class="project-info">
+                            <div class="project-title">医灵古庙</div>
+                            <div class="project-type">古建筑保护</div>
+                            <div class="project-desc">唐代古庙复原工程，涉及大殿、钟楼、藏经阁的重建与周边环境整治</div>
+                        </div>
+                        <div class="project-indicator indicator-pending"></div>
+                    </div>
+                    <div class="project-meta">
+                        <div class="meta-stats">
+                            <div class="meta-item">
+                                <span class="meta-value" id="yiling-files">0</span> 文件
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-value" id="yiling-chats">0</span> 对话
+                            </div>
+                        </div>
+                        <div class="project-time">刚刚创建</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 设置面板 -->
+    <div class="settings-overlay" id="settingsOverlay">
+        <div class="settings-panel">
+            <div class="settings-header">
+                <h2 class="settings-title">⚙️ 设置</h2>
+                <button class="settings-close" onclick="closeSettings()">×</button>
+            </div>
+
+            <div class="settings-section">
+                <h3 class="settings-section-title">🎨 主题设置</h3>
+                <div class="settings-item">
+                    <div class="settings-item-info">
+                        <div class="settings-item-label">主题模式</div>
+                        <div class="settings-item-desc">选择浅色或深色主题</div>
+                    </div>
+                    <div class="theme-toggle">
+                        <button class="theme-option active" id="lightTheme" onclick="setTheme('light')">🌞 浅色</button>
+                        <button class="theme-option" id="darkTheme" onclick="setTheme('dark')">🌙 深色</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 项目数据管理
+        let projectData = {
+            liushi_ancestral_hall: { files: 0, chats: 0 },
+            yiling_ancient_temple: { files: 0, chats: 0 }
+        };
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function () {
+            initializeTheme();
+            loadProjectData();
+            updateProjectCounts();
+        });
+
+        // 主题管理
+        function initializeTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            setTheme(savedTheme);
+        }
+
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+
+            // 更新主题按钮状态
+            document.querySelectorAll('.theme-option').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            if (theme === 'dark') {
+                document.getElementById('darkTheme').classList.add('active');
+            } else {
+                document.getElementById('lightTheme').classList.add('active');
+            }
+        }
+
+        // 设置面板管理
+        function openSettings() {
+            document.getElementById('settingsOverlay').classList.add('show');
+        }
+
+        function closeSettings() {
+            document.getElementById('settingsOverlay').classList.remove('show');
+        }
+
+        // 点击设置面板外部关闭
+        document.addEventListener('click', function (e) {
+            const overlay = document.getElementById('settingsOverlay');
+            if (e.target === overlay) {
+                closeSettings();
+            }
+        });
+
+        // 项目选择功能
+        function selectProject(projectId) {
+            // 获取项目信息
+            const projectCard = event.target.closest('.project-card');
+            const projectTitle = projectCard.querySelector('.project-title').textContent;
+            const projectType = projectCard.querySelector('.project-type').textContent;
+
+            console.log('选择项目:', projectId, projectTitle);
+
+            // 跳转到对话页面，传递项目信息
+            const params = new URLSearchParams({
+                project: projectId,
+                projectName: projectTitle,
+                projectType: projectType
+            });
+
+            window.location.href = `/chat?${params.toString()}`;
+        }
+
+        // 新建项目功能
+        function createNewProject() {
+            const projectName = prompt('请输入新项目名称:');
+            if (!projectName || projectName.trim() === '') {
+                return;
+            }
+
+            const projectType = prompt('请输入项目类型 (如: 文物修缮, 古建筑保护, 市政工程):') || '工程项目';
+            const projectDesc = prompt('请输入项目描述:') || '新建工程项目';
+
+            // 生成项目ID
+            const projectId = 'project_' + Date.now();
+
+            // 创建新项目卡片
+            createProjectCard(projectId, projectName, projectType, projectDesc);
+
+            // 初始化项目数据
+            projectData[projectId] = { files: 0, chats: 0 };
+            saveProjectData();
+
+            alert(`项目 "${projectName}" 创建成功！`);
+        }
+
+        // 创建项目卡片
+        function createProjectCard(projectId, name, type, desc) {
+            const projectsGrid = document.querySelector('.projects-grid');
+
+            const projectCard = document.createElement('div');
+            projectCard.className = 'project-card';
+            projectCard.onclick = () => selectProject(projectId);
+
+            projectCard.innerHTML = `
+                <div class="project-header">
+                    <div class="project-icon">🏗️</div>
+                    <div class="project-info">
+                        <div class="project-title">${name}</div>
+                        <div class="project-type">${type}</div>
+                        <div class="project-desc">${desc}</div>
+                    </div>
+                    <div class="project-indicator indicator-pending"></div>
+                </div>
+                <div class="project-meta">
+                    <div class="meta-stats">
+                        <div class="meta-item">
+                            <span class="meta-value" id="${projectId}-files">0</span> 文件
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-value" id="${projectId}-chats">0</span> 对话
+                        </div>
+                    </div>
+                    <div class="project-time">刚刚创建</div>
+                </div>
+            `;
+
+            projectsGrid.appendChild(projectCard);
+        }
+
+        // 项目数据管理
+        function loadProjectData() {
+            const saved = localStorage.getItem('projectData');
+            if (saved) {
+                projectData = JSON.parse(saved);
+            }
+        }
+
+        function saveProjectData() {
+            localStorage.setItem('projectData', JSON.stringify(projectData));
+        }
+
+        function updateProjectCounts() {
+            for (const [projectId, data] of Object.entries(projectData)) {
+                const filesElement = document.getElementById(`${projectId}-files`) ||
+                    document.getElementById(projectId.replace('_', '-') + '-files');
+                const chatsElement = document.getElementById(`${projectId}-chats`) ||
+                    document.getElementById(projectId.replace('_', '-') + '-chats');
+
+                if (filesElement) filesElement.textContent = data.files;
+                if (chatsElement) chatsElement.textContent = data.chats;
+            }
+        }
+
+        // 增加项目文件数量（供外部调用）
+        function incrementProjectFiles(projectId) {
+            if (projectData[projectId]) {
+                projectData[projectId].files++;
+                saveProjectData();
+                updateProjectCounts();
+            }
+        }
+
+        // 增加项目对话数量（供外部调用）
+        function incrementProjectChats(projectId) {
+            if (projectData[projectId]) {
+                projectData[projectId].chats++;
+                saveProjectData();
+                updateProjectCounts();
+            }
+        }
+
+        // 搜索切换
+        if (document.getElementById('searchToggle')) {
+            document.getElementById('searchToggle').addEventListener('click', function () {
+                const searchBar = document.getElementById('searchBar');
+                const searchInput = document.getElementById('searchInput');
+                const toggle = this;
+
+                if (searchBar.classList.contains('show')) {
+                    searchBar.classList.remove('show');
+                    toggle.classList.remove('active');
+                } else {
+                    searchBar.classList.add('show');
+                    toggle.classList.add('active');
+                    setTimeout(() => searchInput.focus(), 100);
+                }
+            });
+        }
+
+        // 搜索功能
+        if (document.getElementById('searchInput')) {
+            document.getElementById('searchInput').addEventListener('input', function (e) {
+                const searchTerm = e.target.value.toLowerCase();
+                const cards = document.querySelectorAll('.project-card');
+
+                cards.forEach(card => {
+                    const title = card.querySelector('.project-title').textContent.toLowerCase();
+                    const type = card.querySelector('.project-type').textContent.toLowerCase();
+                    const desc = card.querySelector('.project-desc').textContent.toLowerCase();
+
+                    if (title.includes(searchTerm) || type.includes(searchTerm) || desc.includes(searchTerm)) {
+                        card.style.display = 'block';
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+            });
+        }
+
+        // 点击外部关闭搜索
+        document.addEventListener('click', function (e) {
+            const searchBar = document.getElementById('searchBar');
+            const searchToggle = document.getElementById('searchToggle');
+
+            if (searchBar && searchToggle && !searchBar.contains(e.target) && !searchToggle.contains(e.target)) {
+                searchBar.classList.remove('show');
+                searchToggle.classList.remove('active');
+            }
+        });
+
+        // 全局暴露函数供其他页面使用
+        window.projectManager = {
+            incrementFiles: incrementProjectFiles,
+            incrementChats: incrementProjectChats,
+            updateCounts: updateProjectCounts
+        };
+    </script>
+</body>
+
+</html>
