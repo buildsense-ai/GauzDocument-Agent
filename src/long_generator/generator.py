@@ -78,6 +78,23 @@ class TaskState:
 
 
 class LongDocumentGenerator:
+    def generate_by_outline(self, outline: Dict[str, Any]) -> str:
+        """Generates a document directly from a given outline."""
+        self.state.data['outline'] = outline
+        self.state.data['projectName'] = outline.get('title', 'Default Project')
+        self._generate_all_chapters_for_test(outline.get('chapters', []))
+        return self._assemble_final_document_for_test()
+
+    def _generate_all_chapters_for_test(self, chapters: List[Dict[str, Any]]):
+        """A modified version of _generate_all_chapters for direct testing."""
+        self.state.data['outline']['chapters'] = chapters
+        self._generate_all_chapters()
+
+    def _assemble_final_document_for_test(self) -> str:
+        """A modified version of _assemble_final_document for direct testing."""
+        self._assemble_final_document()
+        return self.state.data.get('finalDocument', '')
+
     """负责执行整个长文生成任务的业务流程。"""
 
     def __init__(self, task_id: Optional[str] = None):
