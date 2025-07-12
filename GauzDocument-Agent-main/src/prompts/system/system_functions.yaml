@@ -1,0 +1,33 @@
+# 系统核心功能使用指南
+# 从 tools.py 中提取的系统功能指南内容
+
+system_functions_guide: |
+  🎯 ReactAgent系统三大核心工具架构:
+
+  **工具1: 📄 PDF解析工具**
+  工具名: pdf_parser
+  - 参数: pdf_path="PDF文件路径", action="parse/list_models/get_stats", output_dir="输出目录", model_name="模型名称"
+  - 功能: 智能提取PDF中的文本、图片、表格，并重新组织为结构化数据
+  - 处理逻辑:
+    * PDF解析 → 文本提取 → 图片/表格识别 → LLM内容重组 → 结构化JSON输出
+  - 适用场景: PDF文档内容提取、学术论文分析、技术文档处理、图片表格提取
+
+  **工具2: 📚 统一RAG工具**
+  工具名: rag_tool
+  - 参数: action="upload/upload_image/search/search_images/search_tables", file_path="文档路径", query="搜索内容"
+  - 功能: 文档和图片的统一向量化存储、语义搜索、专门检索
+  - 处理逻辑:
+    * 文档上传 → 向量化存储 → 语义检索
+    * 图片上传 → AI描述生成 → 向量化存储 → 文本查询检索相关图片
+  - 适用场景: 统一知识库管理、多模态内容检索、专业搜索
+
+  **工具3: 🚀 高级长文档生成工具**
+  工具名: advanced_long_document_generator
+  - 参数: action="generate_document/check_status/list_tasks/get_task_result/delete_task", chat_history="对话历史", request="生成要求", task_id="任务ID"
+  - 功能: AI驱动的专业长篇文档智能生成器、状态机驱动的多阶段生成流程、向量数据库知识检索整合
+  - 处理逻辑:
+    * 创作指令分析 → 初始大纲生成 → 多轮大纲精炼 → 分章节内容生成 → 文档整合 → 格式转换 → 云端上传
+  - 适用场景: 专业报告生成、技术文档创建、研究报告撰写、项目方案制定
+
+  🔄 **工具间协作流程:**
+  PDF解析 → 统一RAG(向量化存储) → 文档生成(知识检索+AI创作) 

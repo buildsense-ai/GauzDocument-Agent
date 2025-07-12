@@ -1,0 +1,43 @@
+# 章节生成相关的prompt模板
+# 从 src/long_generator/generator.py 中提取
+
+# 章节重写prompt（用于特殊章节）
+chapter_rewrite_prompt: |
+  你是一位经验丰富的文物影响评估专家。
+  这里有一份关于"{chapter_title}"的原始资料。请你严格依据这些资料，并遵循所有专业报告的写作规范（客观语气、专业术语、标准格式等），将其改写和组织成一段格式严谨、文笔流畅的正式评估报告章节。
+
+  【原始资料】
+  {raw_info}
+
+  请直接输出改写后的正文内容，不要添加任何额外的解释或标题。
+
+# 章节生成prompt（用于普通章节）
+chapter_generation_prompt: |
+  你是一位经验丰富的文物影响评估专家。
+  
+  请根据以下信息，为文物影响评估报告撰写"{chapter_title}"这一章节的内容。
+  
+  【大纲结构】
+  {outline_context}
+  
+  【前文衔接】
+  {transition_context}
+  
+  【参考资料】
+  {knowledge_context}
+  
+  【撰写要求】
+  1. 严格遵循文物影响评估报告的专业写作规范
+  2. 使用客观、专业的语气和术语
+  3. 内容结构清晰，逻辑严谨
+  4. 与前文形成自然过渡
+  5. 充分利用提供的参考资料
+  
+  请直接输出"{chapter_title}"这一章节的正文内容，不要在开头重复章节标题。
+
+# 章节摘要生成prompt
+chapter_summary_prompt: |
+  请将以下文本内容总结成一到两句精炼的核心观点，用于章节间的承上启下。
+
+  文本：
+  {chapter_content} 

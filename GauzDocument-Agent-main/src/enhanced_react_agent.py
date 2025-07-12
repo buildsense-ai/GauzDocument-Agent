@@ -12,6 +12,7 @@ from colorama import init, Fore, Style
 
 from deepseek_client import DeepSeekClient
 from tools import ToolRegistry, create_core_tool_registry
+from prompts.loader import get_prompt_loader
 
 # 初始化colorama
 init(autoreset=True)
@@ -147,94 +148,56 @@ class EnhancedReActAgent:
     
     def _build_system_prompt(self) -> str:
         """构建系统提示词"""
+        try:
+            # 从yaml文件加载prompt模板
+            prompt_loader = get_prompt_loader()
+            prompt_template = prompt_loader.get_prompt("system", "system_prompt_template")
+            
+            # 构建工具描述
+            tools_description = "\n".join([
+                f"- {tool['name']}: {tool['description']}"
+                for tool in self.tool_registry.list_tools()
+            ])
+            
+            # 使用模板替换变量
+            base_prompt = prompt_template.format(
+                tools_description=tools_description,
+                max_iterations=self.max_iterations
+            )
+            
+            return base_prompt
+            
+        except Exception as e:
+            # 如果加载失败，记录错误并使用备用prompt
+            print(f"警告：加载prompt失败，使用备用prompt: {e}")
+            return self._build_fallback_system_prompt()
+    
+    def _build_fallback_system_prompt(self) -> str:
+        """备用系统提示词（当yaml加载失败时使用）"""
         tools_description = "\n".join([
             f"- {tool['name']}: {tool['description']}"
             for tool in self.tool_registry.list_tools()
         ])
         
-        base_prompt = f"""你是一个ReAct (Reasoning and Acting) 智能代理。你需要通过交替进行推理(Thought)和行动(Action)来解决问题。
+        return f"""你是一个ReAct (Reasoning and Acting) 智能代理。你需要通过交替进行推理(Thought)和行动(Action)来解决问题。
 
 ⚠️ **重要：你必须优先使用工具来解决问题，而不是直接给出答案！**
 
 可用工具:
 {tools_description}
 
-🎯 **系统三大核心工具智能判断指南:**
-
-🚨 **关键规则:**
-1. **禁止直接回答** - 对于任何可以用工具解决的问题，都必须先调用相应工具
-2. **工具优先** - 分析问题时首先考虑使用哪个工具，而不是自己编造答案
-3. **识别任务完成** - 当工具返回"success": true, "status": "completed"时，立即停止并给出Final Answer
-4. **🚫 严禁编造结果** - 绝对不能在没有收到工具成功执行结果的情况下编造Final Answer
-5. **⚠️ 错误处理** - 如果工具返回错误信息，必须分析错误原因并尝试修复，不能假装成功
-6. **📋 观察验证** - 只有当Observation显示明确的成功状态时，才能给出Final Answer
-
-🔧 **三大核心工具判断流程:**
-
-**工具1: 📄 PDF解析处理 - `pdf_parser`**
-- 🔍 **使用条件**: 用户需要解析PDF文件、提取PDF内容、分析PDF结构
-- 📋 **功能**: 智能提取PDF中的文本、图片、表格并结构化重组
-- 🎯 **关键词**: 解析pdf、提取pdf、pdf解析、pdf内容、pdf文本、pdf分析
-- ⚙️ **参数**: pdf_path="文件路径", action="parse"
-- 📄 **输出**: 结构化的JSON内容，包含文本、图片、表格信息
-
-**工具2: 📚 文档检索与上传 - `rag_tool`**
-- 🔍 **使用条件**: 上传文档、搜索文档、文档向量化、知识检索
-- 📋 **功能**: 文档embedding向量化存储、语义搜索、图片上传与检索
-- 🎯 **关键词**: 上传、搜索、检索、查找、文档管理、知识库
-- ⚙️ **参数**: action="upload/search", file_path="文件路径", query="搜索内容"
-- 📄 **输出**: 上传确认或搜索结果
-
-**工具3: 📝 智能文档生成 - `document_generator`**
-- 🔍 **使用条件**: 生成报告、创建文档、智能写作、文档创作
-- 📋 **功能**: AI驱动的长文档和短文档生成，支持大纲规划、知识检索、多格式输出
-- 🎯 **关键词**: 生成文档、创建报告、写作、方案、计划、分析报告
-- ⚙️ **参数**: action="generate_long_document/generate_short_document", title="标题", requirements="要求"
-- 📄 **输出**: 任务ID和生成进度，完成后提供文档链接
-
-🔄 **工具协作流程建议:**
-1. **文档处理流程**: PDF解析 → RAG向量化 → 智能文档生成
-2. **知识管理流程**: 文档上传 → RAG检索 → 基于检索结果生成新文档
-3. **纯创作流程**: 直接使用document_generator创建文档
-
-⚠️ **执行要求:**
-1. Action必须是可用工具列表中的工具名称
-2. Action Input必须符合工具的要求
-3. 每次行动后等待Observation结果
-4. 基于Observation继续推理和行动，直到找到最终答案
-
 你必须严格按照以下格式进行推理和行动:
 
-Thought: [你的推理过程，分析当前情况和下一步需要做什么，首先判断属于哪个核心功能]
+Thought: [你的推理过程，分析当前情况和下一步需要做什么]
 Action: [工具名称]
-Action Input: [工具的输入参数，如果是单个参数直接写，多个参数用JSON格式]
+Action Input: [工具的输入参数]
 Observation: [工具执行结果，这部分由系统自动填充]
-
-然后继续:
-Thought: [基于观察结果的进一步推理]
-Action: [下一个行动]
-...
 
 当你有了最终答案时，使用:
 Thought: [最终推理]
 Final Answer: [你的最终答案]
 
-⚠️ **特别注意任务完成信号**:
-- 当工具返回包含 "success": true, "status": "completed" 的结果时，这表示任务已经完全完成
-- 此时应该立即停止ReAct循环，给出Final Answer，不要继续尝试其他操作
-- 成功的文档生成会包含 docx_url 或 output_path，这就是最终结果
-- 文档上传成功后，也应该给出Final Answer确认处理结果
-
-⚠️ **执行格式要求:**
-1. Action必须是可用工具列表中的工具名称
-2. Action Input必须符合工具的要求
-3. 每次行动后等待Observation结果
-4. 基于Observation继续推理和行动，直到找到最终答案
-5. 最多进行{self.max_iterations}轮推理和行动
-
 开始解决问题吧！"""
-        
-        return base_prompt
     
     def _parse_response(self, response: str) -> Tuple[str, Optional[str], Optional[str]]:
         """解析LLM响应，提取推理、行动和输入"""
@@ -291,7 +254,7 @@ Final Answer: [你的最终答案]
         if self.verbose:
             print(f"{color}{step_type}: {content}")
     
-    def solve(self, problem: str, use_enhanced_framework: bool = False) -> dict:
+    def solve(self, problem: str, use_enhanced_framework: bool = False) -> str:
         """
         解决问题的主要方法
         
@@ -300,7 +263,7 @@ Final Answer: [你的最终答案]
             use_enhanced_framework: 是否使用增强版三步骤框架（已弃用，统一使用ReAct循环）
         
         Returns:
-            包含最终答案和思考过程的字典
+            解决方案和结果
         """
         self.current_problem = problem
         self.conversation_history.append({"role": "user", "content": problem})
@@ -309,24 +272,8 @@ Final Answer: [你的最终答案]
         # Agent会通过Thought → Action的方式自己决定调用哪个工具
         return self._react_loop(problem)
     
-    def solve_simple(self, problem: str) -> str:
-        """
-        简单解决问题的方法（向后兼容）
-        
-        Args:
-            problem: 用户问题
-        
-        Returns:
-            只返回最终答案字符串
-        """
-        result = self.solve(problem)
-        return result.get("final_answer", "")
-    
-    def _react_loop(self, problem: str) -> dict:
+    def _react_loop(self, problem: str) -> str:
         """ReAct循环逻辑 - 处理所有类型的请求"""
-        # 🆕 添加思考过程收集
-        thinking_steps = []
-        
         if self.verbose:
             print(f"{Fore.CYAN}{'='*50}")
             print(f"{Fore.CYAN}ReAct Agent 开始解决问题")
@@ -341,23 +288,32 @@ Final Answer: [你的最终答案]
         if self.memory_manager:
             context = self.memory_manager.get_relevant_context(problem)
             if context:
-                conversation.append({"role": "system", "content": f"相关历史经验:\n{context}"})
+                try:
+                    prompt_loader = get_prompt_loader()
+                    memory_template = prompt_loader.get_prompt("system", "memory_context_template")
+                    memory_content = memory_template.format(context=context)
+                except Exception as e:
+                    # 如果模板加载失败，使用默认格式
+                    memory_content = f"相关历史经验:\n{context}"
+                
+                conversation.append({"role": "system", "content": memory_content})
                 if self.verbose:
                     print(f"{Fore.YELLOW}📚 找到相关历史经验")
         
-        conversation.append({"role": "user", "content": f"问题: {problem}"})
+        # 添加用户问题
+        try:
+            prompt_loader = get_prompt_loader()
+            question_template = prompt_loader.get_prompt("system", "user_question_template")
+            user_question = question_template.format(problem=problem)
+        except Exception as e:
+            # 如果模板加载失败，使用默认格式
+            user_question = f"问题: {problem}"
+        
+        conversation.append({"role": "user", "content": user_question})
         
         for iteration in range(self.max_iterations):
-            current_iteration = iteration + 1
             if self.verbose:
-                print(f"\n{Fore.YELLOW}--- 第 {current_iteration} 轮 ---")
-            
-            # 🆕 添加轮次记录
-            thinking_steps.append({
-                "type": "iteration",
-                "iteration": current_iteration,
-                "content": f"第 {current_iteration} 轮推理"
-            })
+                print(f"\n{Fore.YELLOW}--- 第 {iteration + 1} 轮 ---")
             
             # 获取LLM响应
             response, usage_info = self.client.chat_completion(conversation)
@@ -369,12 +325,6 @@ Final Answer: [你的最终答案]
             # 打印推理过程
             if thought:
                 self._print_step("Thought", thought, Fore.BLUE)
-                # 🆕 记录思考过程
-                thinking_steps.append({
-                    "type": "thought",
-                    "iteration": current_iteration,
-                    "content": thought
-                })
             
             # 检查是否是最终答案
             if action is None and action_input_or_final:
@@ -386,12 +336,7 @@ Final Answer: [你的最终答案]
                     if self.verbose:
                         print(f"{Fore.YELLOW}💾 已保存到记忆")
                 
-                # 🆕 返回包含思考过程的字典
-                return {
-                    "final_answer": action_input_or_final,
-                    "thinking_steps": thinking_steps,
-                    "total_iterations": current_iteration
-                }
+                return action_input_or_final
             
             # 执行行动
             if action:
@@ -399,24 +344,9 @@ Final Answer: [你的最终答案]
                 if action_input_or_final:
                     self._print_step("Action Input", action_input_or_final, Fore.MAGENTA)
                 
-                # 🆕 记录行动
-                thinking_steps.append({
-                    "type": "action",
-                    "iteration": current_iteration,
-                    "action": action,
-                    "input": action_input_or_final or ""
-                })
-                
                 # 执行工具
                 observation = self._execute_action(action, action_input_or_final or "")
                 self._print_step("Observation", observation, Fore.CYAN)
-                
-                # 🆕 记录观察结果
-                thinking_steps.append({
-                    "type": "observation",
-                    "iteration": current_iteration,
-                    "content": observation
-                })
                 
                 # 将观察结果添加到对话
                 conversation.append({"role": "user", "content": f"Observation: {observation}"})
@@ -424,14 +354,6 @@ Final Answer: [你的最终答案]
                 # 如果没有明确的action，可能是格式错误
                 error_msg = "响应格式不正确，请按照 Thought -> Action -> Action Input 的格式"
                 self._print_step("Error", error_msg, Fore.RED)
-                
-                # 🆕 记录错误
-                thinking_steps.append({
-                    "type": "error",
-                    "iteration": current_iteration,
-                    "content": error_msg
-                })
-                
                 conversation.append({"role": "user", "content": f"Error: {error_msg}"})
         
         # 达到最大迭代次数
@@ -443,12 +365,7 @@ Final Answer: [你的最终答案]
         if self.memory_manager:
             self.memory_manager.add_session(problem, final_msg, conversation)
         
-        # 🆕 返回包含思考过程的字典
-        return {
-            "final_answer": final_msg,
-            "thinking_steps": thinking_steps,
-            "total_iterations": self.max_iterations
-        }
+        return final_msg
     
     def interactive_mode(self):
         """增强的交互模式，支持记忆"""

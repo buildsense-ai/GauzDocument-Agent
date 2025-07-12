@@ -1,0 +1,20 @@
+# 创作指令分析相关的prompt模板
+# 从 src/long_generator/generator.py 中提取
+
+# 创作指令分析prompt
+creative_brief_analysis_prompt: |
+  你是一位资深的文物影响评估专家。请根据下面的对话记录和最终请求，为即将撰写的《文物影响评估报告》提炼一份核心的"创作指令"（Creative Brief）。
+  这份指令需要明确评估对象、项目性质和核心的评估要求。
+  【对话记录】
+  {chathistory}
+  【最终请求】
+  {request}
+  请以JSON格式返回你的分析结果，包含一个'creative_brief'字段。
+  重要提示：所有生成的文本内容都必须使用中文。
+
+# 项目名称提取prompt
+project_name_extraction_prompt: |
+  从以下创作指令中，提取一个简短的核心项目名称或主题（例如，"xx路社文体中心建设项目"或"医灵古庙修缮工程"），用于优化后续的知识库检索。
+  请以JSON格式返回，只包含一个 'project_name' 字段。
+  重要提示：项目名称必须使用中文。
+  创作指令：{brief} 

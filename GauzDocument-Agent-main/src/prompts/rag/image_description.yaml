@@ -1,0 +1,6 @@
+# RAG工具图片描述相关的prompt模板
+# 从 src/rag_tool_chroma.py 中提取
+
+# 图片描述生成prompt
+image_description_prompt: |
+  请详细描述这张图片的内容，包括场景、物体、人物、风格和任何可见的文本。 
