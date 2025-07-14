@@ -334,46 +334,13 @@ class TemplateFieldProcessor:
                     content_text=content_text
                 )
             else:
-                # 备用prompt
-                prompt = f"""
-你是一个专业的文档处理助手。请根据以下信息为字段生成合适的内容：
-
-字段名称：{field_name}
-字段要求：{field_requirement}
-
-相关资料内容：
-{content_text}
-
-任务要求：
-1. 基于相关资料内容，为该字段生成专业、准确的内容
-2. 内容应该符合字段要求和描述
-3. 保持内容的专业性和完整性
-4. 如果资料内容不足，请基于字段要求进行合理补充
-5. 内容长度适中，重点突出
-
-请直接返回该字段的具体内容，不要包含解释文字。
-"""
+                # 如果prompt加载器不可用，直接使用基础模式
+                logger.warning("PromptLoader不可用，使用基础模式生成内容")
+                return self._generate_field_content_basic(field_name, field_requirement, relevant_content)
+                
         except Exception as e:
-            logger.warning(f"加载prompt模板失败，使用备用prompt: {e}")
-            # 备用prompt
-            prompt = f"""
-你是一个专业的文档处理助手。请根据以下信息为字段生成合适的内容：
-
-字段名称：{field_name}
-字段要求：{field_requirement}
-
-相关资料内容：
-{content_text}
-
-任务要求：
-1. 基于相关资料内容，为该字段生成专业、准确的内容
-2. 内容应该符合字段要求和描述
-3. 保持内容的专业性和完整性
-4. 如果资料内容不足，请基于字段要求进行合理补充
-5. 内容长度适中，重点突出
-
-请直接返回该字段的具体内容，不要包含解释文字。
-"""
+            logger.warning(f"加载prompt模板失败，使用基础模式: {e}")
+            return self._generate_field_content_basic(field_name, field_requirement, relevant_content)
         
         try:
             response = self.deepseek_client.chat([{"role": "user", "content": prompt}])
@@ -615,15 +582,14 @@ class RAGTool(Tool):
             
             # 1. 使用Gemini生成图片描述
             try:
-                # 使用prompt模板
                 if PROMPT_LOADER_AVAILABLE:
                     prompt_loader = get_prompt_loader()
                     prompt = prompt_loader.get_prompt("rag", "image_description_prompt")
                 else:
-                    prompt = "请详细描述这张图片的内容，包括场景、物体、人物、风格和任何可见的文本。"
+                    raise Exception("PromptLoader不可用，无法生成图片描述")
             except Exception as e:
-                logger.warning(f"加载prompt模板失败，使用备用prompt: {e}")
-                prompt = "请详细描述这张图片的内容，包括场景、物体、人物、风格和任何可见的文本。"
+                logger.error(f"加载图片描述prompt失败: {e}")
+                raise Exception(f"图片描述prompt加载失败: {e}")
             
             ai_description = openrouter_client.get_image_description_gemini(image_path, prompt=prompt)
             

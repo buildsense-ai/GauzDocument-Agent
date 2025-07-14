@@ -569,17 +569,17 @@ Output:"""
         images = {}
         tables = {}
         
-        # 提取表格
+        # 提取表格 - 使用正确的方法
         table_counter = 0
         for element, _level in raw_result.document.iterate_items():
             if isinstance(element, TableItem):
                 table_counter += 1
-                caption = element.caption_text(raw_result.document)
+                caption = element.caption_text(element.parent)
                 table_img_path = os.path.join(output_dir, f"table-{table_counter}.png")
                 
                 # 保存表格图片
                 try:
-                    table_image = element.get_image(raw_result.document)
+                    table_image = element.get_image(element.parent)
                     if table_image is not None:
                         with open(table_img_path, "wb") as fp:
                             table_image.save(fp, "PNG")
@@ -600,38 +600,35 @@ Output:"""
                 except Exception as e:
                     print(f"❌ 保存表格 {table_counter} 失败: {e}")
         
-        # 提取图片
+        # 提取图片 - 使用正确的方法
         picture_counter = 0
-        # 收集所有元素，便于定位图片和文本
-        all_elements = list(raw_result.document.iterate_items())
-        for idx, (element, _level) in enumerate(all_elements):
-            if isinstance(element, PictureItem):
-                picture_counter += 1
-                caption = element.caption_text(raw_result.document)
-                image_img_path = os.path.join(output_dir, f"picture-{picture_counter}.png")
-                try:
-                    picture_image = element.get_image(raw_result.document)
-                    if picture_image is not None:
-                        with open(image_img_path, "wb") as fp:
-                            picture_image.save(fp, "PNG")
-                        image_img = Image.open(image_img_path)
-                        
-                        # [已移除] 不再提取context字段，使用VLM进行图片描述
-                        
-                        images[str(picture_counter)] = {
-                            'caption': caption if caption else f"图片 {picture_counter}",
-                            'image_path': image_img_path,
-                            'width': image_img.width,
-                            'height': image_img.height,
-                            'figure_size': image_img.width * image_img.height,
-                            'figure_aspect': image_img.width / image_img.height,
-                            # [已移除] 'context': context, - 不再使用context字段，由VLM生成描述
-                        }
-                        print(f"✅ 保存图片 {picture_counter}: {image_img_path}")
-                    else:
-                        print(f"⚠️ 图片 {picture_counter} 图像为空")
-                except Exception as e:
-                    print(f"❌ 保存图片 {picture_counter} 失败: {e}")
+        for picture in raw_result.document.pictures:
+            picture_counter += 1
+            caption = picture.caption_text(raw_result.document)
+            image_img_path = os.path.join(output_dir, f"picture-{picture_counter}.png")
+            try:
+                picture_image = picture.get_image(raw_result.document)
+                if picture_image is not None:
+                    with open(image_img_path, "wb") as fp:
+                        picture_image.save(fp, "PNG")
+                    image_img = Image.open(image_img_path)
+                    
+                    # [已移除] 不再提取context字段，使用VLM进行图片描述
+                    
+                    images[str(picture_counter)] = {
+                        'caption': caption if caption else f"图片 {picture_counter}",
+                        'image_path': image_img_path,
+                        'width': image_img.width,
+                        'height': image_img.height,
+                        'figure_size': image_img.width * image_img.height,
+                        'figure_aspect': image_img.width / image_img.height,
+                        # [已移除] 'context': context, - 不再使用context字段，由VLM生成描述
+                    }
+                    print(f"✅ 保存图片 {picture_counter}: {image_img_path}")
+                else:
+                    print(f"⚠️ 图片 {picture_counter} 图像为空")
+            except Exception as e:
+                print(f"❌ 保存图片 {picture_counter} 失败: {e}")
         
         print(f"📊 提取了 {len(tables)} 个表格和 {len(images)} 个图片")
         return images, tables
