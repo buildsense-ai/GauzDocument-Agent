@@ -29,15 +29,6 @@ except ImportError as e:
     class PdfPipelineOptions:
         pass
 
-# 导入备用PDF处理库
-try:
-    import fitz  # PyMuPDF
-    PYMUPDF_AVAILABLE = True
-    print("✅ PyMuPDF可用作备用解析器")
-except ImportError:
-    PYMUPDF_AVAILABLE = False
-    print("❌ PyMuPDF不可用")
-
 
 class PDFDocumentParser:
     """
@@ -67,48 +58,8 @@ class PDFDocumentParser:
         self._init_docling_converter()
     
     def _init_docling_converter(self) -> None:
-        """初始化Docling转换器（智能设备适配版本）"""
+        """初始化Docling转换器"""
         try:
-            import torch
-            import os
-            import platform
-            import multiprocessing
-            
-            # 检测硬件能力
-            system_info = platform.system()
-            cpu_count = multiprocessing.cpu_count()
-            
-            # 设备检测和优化
-            device = "cpu"
-            use_gpu = False
-            use_mps = False
-            
-            if torch.cuda.is_available():
-                device = "cuda:0"
-                use_gpu = True
-                # CUDA GPU优化设置
-                torch.backends.cudnn.benchmark = True
-                os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
-                torch.backends.cuda.matmul.allow_tf32 = True
-                torch.backends.cudnn.allow_tf32 = True
-                print(f"🚀 CUDA GPU检测成功 - 设备: {torch.cuda.get_device_name(0)}")
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                device = "mps"
-                use_mps = True
-                print("🍎 Apple Silicon MPS检测成功")
-            else:
-                print(f"💻 使用CPU模式 - 系统: {system_info}, CPU核心: {cpu_count}")
-            
-            # 根据硬件设置线程数
-            if use_gpu:
-                # GPU模式：适中的线程数避免CPU-GPU竞争
-                optimal_threads = min(16, cpu_count)
-            else:
-                # CPU模式：充分利用CPU核心
-                optimal_threads = max(1, cpu_count - 1)  # 保留一个核心给系统
-            
-            torch.set_num_threads(optimal_threads)
-            
             # 设置本地模型路径
             models_cache_dir = Path("models_cache")
             artifacts_path = None
@@ -117,61 +68,19 @@ class PDFDocumentParser:
             elif self.config.docling.artifacts_path:
                 artifacts_path = self.config.docling.artifacts_path
             
-            # 智能加速器选项
-            from docling.datamodel.accelerator_options import AcceleratorOptions
-            accelerator_options = AcceleratorOptions(
-                device=device,
-                num_threads=optimal_threads,
-                cuda_use_flash_attention2=use_gpu  # 仅在GPU模式下启用
-            )
+            # 创建OCR选项
+            ocr_options = EasyOcrOptions() if self.config.docling.ocr_enabled else None
             
-            # 智能OCR选项
-            ocr_options = None
-            if self.config.docling.ocr_enabled:
-                # 根据EasyOCR支持的语言列表选择安全的语言组合
-                supported_langs = ["en"]  # 英语是最稳定支持的
-                if not use_gpu:  # CPU模式下添加更多语言支持
-                    supported_langs.extend(["fr", "de"])  # 法语和德语通常支持较好
-                
-                ocr_options = EasyOcrOptions(
-                    confidence_threshold=0.4,
-                    lang=supported_langs
-                    # 注意：不再使用已弃用的use_gpu参数，设备选择由accelerator_options控制
-                )
-            
-            # 智能表格结构选项
-            from docling.datamodel.pipeline_options import TableStructureOptions, TableFormerMode
-            # 根据硬件能力选择模式
-            table_mode = TableFormerMode.FAST if (use_gpu or use_mps) else TableFormerMode.ACCURATE
-            table_options = TableStructureOptions(
-                mode=table_mode,
-                do_cell_matching=True
-            )
-            
-            # 创建智能管道选项
+            # 创建管道选项
             pipeline_options = PdfPipelineOptions(
-                # 核心处理选项
-                do_table_structure=True,
-                do_ocr=self.config.docling.ocr_enabled,
-                do_picture_description=use_gpu or use_mps,  # 仅在有加速器时启用
-                do_picture_classification=True,
-                
-                # 配置选项
                 ocr_options=ocr_options,
-                table_structure_options=table_options,
-                
-                # 加速器选项
-                accelerator_options=accelerator_options,
-                
-                # 图像生成选项
-                images_scale=self.config.docling.images_scale,
-                generate_page_images=self.config.docling.generate_page_images,
-                generate_picture_images=self.config.docling.generate_picture_images,
-                
-                # 性能选项（根据硬件调整超时）
-                document_timeout=600.0 if device == "cpu" else 300.0,
                 artifacts_path=artifacts_path
             )
+            
+            # 设置解析选项
+            pipeline_options.images_scale = self.config.docling.images_scale
+            pipeline_options.generate_page_images = self.config.docling.generate_page_images
+            pipeline_options.generate_picture_images = self.config.docling.generate_picture_images
             
             # 创建文档转换器
             self.doc_converter = DocumentConverter(
@@ -180,16 +89,7 @@ class PDFDocumentParser:
                 }
             )
             
-            # 输出优化信息
-            device_name = {
-                "cuda:0": f"CUDA GPU ({torch.cuda.get_device_name(0)})",
-                "mps": "Apple Silicon MPS",
-                "cpu": f"CPU ({system_info})"
-            }.get(device, device)
-            
-            print(f"✅ Docling转换器初始化成功 - 设备: {device_name}")
-            print(f"📊 线程数: {optimal_threads}, 表格模式: {table_mode.value}")
-            print(f"🔧 图片描述: {'启用' if (use_gpu or use_mps) else '禁用'}, OCR GPU: {'启用' if use_gpu else '禁用'}")
+            print("✅ Docling转换器初始化成功")
             
         except Exception as e:
             print(f"❌ Docling转换器初始化失败: {e}")
@@ -204,99 +104,46 @@ class PDFDocumentParser:
             
         Returns:
             Tuple[Any, Dict[int, str]]: (raw_result, page_texts)
-            - raw_result: 解析结果（Docling或PyMuPDF）
+            - raw_result: Docling原始解析结果
             - page_texts: 页码到页面文本的映射
         """
+        if not DOCLING_AVAILABLE:
+            raise RuntimeError("Docling不可用，无法解析PDF")
+        
+        if not self.doc_converter:
+            raise RuntimeError("Docling转换器未初始化")
+        
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"PDF文件不存在: {pdf_path}")
         
         print(f"🔄 开始解析PDF: {pdf_path}")
         
-        # 优先使用Docling
-        if DOCLING_AVAILABLE and self.doc_converter:
-            try:
-                # 使用Docling解析PDF
-                raw_result = self.doc_converter.convert(Path(pdf_path))
-                print("✅ Docling解析完成")
-                
-                # 提取按页文本
-                page_texts = self._extract_page_texts(raw_result)
-                print(f"📄 提取到 {len(page_texts)} 页文本")
-                
-                return raw_result, page_texts
-                
-            except Exception as e:
-                print(f"⚠️ Docling解析失败，尝试降级处理: {e}")
-        
-        # 降级到PyMuPDF
-        if PYMUPDF_AVAILABLE:
-            try:
-                return self._parse_with_pymupdf(pdf_path)
-            except Exception as e:
-                print(f"❌ PyMuPDF解析也失败: {e}")
-                raise RuntimeError(f"所有PDF解析方法都失败: {str(e)}")
-        
-        # 如果所有方法都不可用
-        raise RuntimeError("没有可用的PDF解析器（Docling和PyMuPDF都不可用）")
-    
-    def _parse_with_pymupdf(self, pdf_path: str) -> Tuple[Any, Dict[int, str]]:
-        """
-        使用PyMuPDF解析PDF文件（降级处理）
-        
-        Args:
-            pdf_path: PDF文件路径
-            
-        Returns:
-            Tuple[Any, Dict[int, str]]: (raw_result, page_texts)
-        """
-        print("🔄 使用PyMuPDF进行降级解析...")
-        
         try:
-            # 打开PDF文档
-            doc = fitz.open(pdf_path)
-            page_texts = {}
+            # 使用Docling解析PDF
+            raw_result = self.doc_converter.convert(Path(pdf_path))
+            print("✅ Docling解析完成")
             
-            # 逐页提取文本
-            for page_num in range(len(doc)):
-                page = doc.load_page(page_num)
-                text = page.get_text()
-                
-                if text.strip():
-                    page_texts[page_num + 1] = text.strip()
+            # 提取按页文本
+            page_texts = self._extract_page_texts(raw_result)
+            print(f"📄 提取到 {len(page_texts)} 页文本")
             
-            doc.close()
-            
-            print(f"✅ PyMuPDF解析完成，提取到 {len(page_texts)} 页文本")
-            
-            # 创建一个简单的结果对象
-            class PyMuPDFResult:
-                def __init__(self, page_texts):
-                    self.page_texts = page_texts
-                    self.source = "PyMuPDF"
-            
-            raw_result = PyMuPDFResult(page_texts)
             return raw_result, page_texts
             
         except Exception as e:
-            print(f"❌ PyMuPDF解析失败: {e}")
-            raise RuntimeError(f"PyMuPDF解析失败: {str(e)}")
+            print(f"❌ PDF解析失败: {e}")
+            raise RuntimeError(f"PDF解析失败: {str(e)}")
     
     def _extract_page_texts(self, raw_result: Any) -> Dict[int, str]:
         """
-        从解析结果中提取按页文本
+        从Docling解析结果中提取按页文本
         
         Args:
-            raw_result: 解析结果（Docling或PyMuPDF）
+            raw_result: Docling解析结果
             
         Returns:
             Dict[int, str]: 页码到页面文本的映射
         """
         try:
-            # 检查是否是PyMuPDF结果
-            if hasattr(raw_result, 'source') and raw_result.source == "PyMuPDF":
-                return raw_result.page_texts
-            
-            # Docling结果处理
             # 导出为markdown格式
             raw_markdown = raw_result.document.export_to_markdown()
             
@@ -575,4 +422,4 @@ class PDFDocumentParser:
                 "error": f"文档信息获取失败: {str(e)}",
                 "file_path": pdf_path,
                 "file_size": os.path.getsize(pdf_path) if os.path.exists(pdf_path) else 0
-            }
+            } 
