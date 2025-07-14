@@ -36,6 +36,15 @@ except ImportError as e:
     class RefItem:
         pass
 
+# 导入备用PDF处理库
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+    print("✅ PyMuPDF可用作备用媒体提取器")
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+    print("❌ PyMuPDF不可用")
+
 
 class MediaExtractor:
     """
@@ -74,16 +83,13 @@ class MediaExtractor:
         从PDF解析结果中按页提取图片和表格
         
         Args:
-            raw_result: Docling解析结果
+            raw_result: 解析结果（Docling或PyMuPDF）
             page_texts: 页码到页面文本的映射 {page_number: page_text}
             output_dir: 输出目录
             
         Returns:
             List[PageData]: 包含图片和表格的页面数据列表
         """
-        if not DOCLING_AVAILABLE:
-            raise RuntimeError("Docling不可用，无法提取媒体")
-        
         # 创建输出目录
         os.makedirs(output_dir, exist_ok=True)
         
@@ -96,6 +102,16 @@ class MediaExtractor:
                 images=[],
                 tables=[]
             ))
+        
+        # 检查是否是PyMuPDF结果
+        if hasattr(raw_result, 'source') and raw_result.source == "PyMuPDF":
+            print("🔄 使用PyMuPDF进行媒体提取...")
+            return self._extract_media_with_pymupdf(pages, output_dir)
+        
+        # Docling结果处理
+        if not DOCLING_AVAILABLE:
+            print("⚠️ Docling不可用，跳过媒体提取")
+            return pages
         
         # 保存raw_result的引用
         self.raw_result = raw_result
@@ -232,6 +248,102 @@ class MediaExtractor:
                 print(f"❌ 保存表格 {table_counter} 失败: {e}")
         
         print(f"📊 集合提取完成: {image_counter} 个图片, {table_counter} 个表格")
+    
+    def _extract_media_with_pymupdf(self, pages: List[PageData], output_dir: str) -> List[PageData]:
+        """
+        使用PyMuPDF提取媒体（降级处理）
+        """
+        if not PYMUPDF_AVAILABLE:
+            print("⚠️ PyMuPDF不可用，跳过媒体提取")
+            return pages
+        
+        try:
+            import fitz
+            
+            # 从raw_result中获取文档路径
+            pdf_path = getattr(self.raw_result, 'pdf_path', None)
+            if not pdf_path:
+                print("⚠️ 无法获取PDF路径，跳过媒体提取")
+                return pages
+            
+            # 打开PDF文档
+            doc = fitz.open(pdf_path)
+            
+            image_counter = 0
+            
+            # 遍历每一页提取图片
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                
+                # 获取页面中的图片
+                image_list = page.get_images(full=True)
+                
+                for img_index, img in enumerate(image_list):
+                    try:
+                        # 获取图片数据
+                        xref = img[0]
+                        pix = fitz.Pixmap(doc, xref)
+                        
+                        # 跳过CMYK图片（转换复杂）
+                        if pix.n - pix.alpha < 4:
+                            image_counter += 1
+                            
+                            # 保存图片
+                            image_filename = f"pymupdf_image_{image_counter}.png"
+                            image_path = os.path.join(output_dir, image_filename)
+                            
+                            if pix.alpha:
+                                pix = fitz.Pixmap(fitz.csRGB, pix)
+                            
+                            pix.save(image_path)
+                            pix = None  # 释放内存
+                            
+                            # 找到对应的页面数据
+                            page_data = None
+                            for p in pages:
+                                if p.page_number == page_num + 1:  # PyMuPDF页码从0开始
+                                    page_data = p
+                                    break
+                            
+                            if page_data:
+                                # 获取图片信息
+                                from PIL import Image
+                                try:
+                                    image_img = Image.open(image_path)
+                                    
+                                    # 创建ImageWithContext对象
+                                    image_with_context = ImageWithContext(
+                                        image_path=image_path,
+                                        page_number=page_num + 1,
+                                        page_context=page_data.raw_text[:1000],
+                                        caption=f"图片 {image_counter} (PyMuPDF提取)",
+                                        metadata={
+                                            'width': image_img.width,
+                                            'height': image_img.height,
+                                            'size': image_img.width * image_img.height,
+                                            'aspect_ratio': image_img.width / image_img.height,
+                                            'source': 'PyMuPDF'
+                                        }
+                                    )
+                                    
+                                    page_data.images.append(image_with_context)
+                                    print(f"✅ PyMuPDF提取图片 {image_counter}: {image_path}")
+                                    
+                                except Exception as e:
+                                    print(f"❌ 处理图片 {image_counter} 失败: {e}")
+                        else:
+                            pix = None
+                            
+                    except Exception as e:
+                        print(f"❌ 提取页面 {page_num + 1} 图片 {img_index} 失败: {e}")
+            
+            doc.close()
+            print(f"📊 PyMuPDF媒体提取完成: {image_counter} 个图片")
+            
+        except Exception as e:
+            print(f"❌ PyMuPDF媒体提取失败: {e}")
+        
+        return pages
     
     def _extract_media_parallel(self, 
                                all_elements: List[Tuple[Any, int]], 
@@ -813,4 +925,4 @@ class MediaExtractor:
             
         except Exception as e:
             print(f"❌ 媒体提取失败: {e}")
-            raise 
+            raise
