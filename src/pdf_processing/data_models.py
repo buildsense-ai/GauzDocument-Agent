@@ -182,3 +182,29 @@ class AdvancedProcessingResult:
             },
             "processing_metadata": self.processing_metadata
         } 
+
+
+@dataclass
+class ChapterContent:
+    """第一级章节内容"""
+    chapter_id: str
+    title: str
+    content: str
+    start_pos: int
+    end_pos: int
+    word_count: int
+    has_images: bool
+    has_tables: bool
+
+
+@dataclass
+class MinimalChunk:
+    """最小颗粒度分块"""
+    chunk_id: str
+    content: str
+    chunk_type: str  # title, paragraph, list_item, image_desc, table_desc
+    belongs_to_chapter: str
+    chapter_title: str
+    start_pos: int
+    end_pos: int
+    word_count: int 

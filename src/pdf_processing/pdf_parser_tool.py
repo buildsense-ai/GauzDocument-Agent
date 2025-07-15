@@ -369,7 +369,7 @@ class PDFParserTool(Tool):
                 
                 # 7.1 提取基础metadata
                 basic_metadata = self.metadata_extractor.extract_from_page_split_result(result_file)
-                document_id = basic_metadata["document"]["document_id"]
+                document_id = basic_metadata["document_info"]["document_id"]
                 
                 # 处理TOC metadata（需要使用TOC文件路径）
                 if toc_result and toc_result.get("toc"):
@@ -394,11 +394,11 @@ class PDFParserTool(Tool):
                 # 7.2 生成文档摘要
                 if chunks_result:
                     document_summary = self.document_summary_generator.generate_document_summary(
-                        document_info=basic_metadata["document"],
+                        document_info=basic_metadata["document_info"],
                         chunking_result=chunks_result,
                         toc_data=toc_result,
-                        image_count=len(basic_metadata.get("images", [])),
-                        table_count=len(basic_metadata.get("tables", []))
+                        image_count=len(basic_metadata.get("image_metadata", [])),
+                        table_count=len(basic_metadata.get("table_metadata", []))
                     )
                     
                     # 保存文档摘要（document_summary是tuple）
@@ -412,8 +412,8 @@ class PDFParserTool(Tool):
                         document_id=document_id,
                         chunking_result=chunks_result,
                         toc_data=toc_result,
-                        image_metadata=basic_metadata.get("images", []),
-                        table_metadata=basic_metadata.get("tables", [])
+                        image_metadata=basic_metadata.get("image_metadata", []),
+                        table_metadata=basic_metadata.get("table_metadata", [])
                     )
                     
                     # 保存章节摘要（chapter_summaries是list of tuples）

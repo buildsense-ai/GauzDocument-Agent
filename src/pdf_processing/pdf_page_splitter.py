@@ -8,10 +8,11 @@ PDF Page Splitter
 import os
 import tempfile
 import shutil
+import multiprocessing
 from typing import List, Dict, Tuple, Optional, Any
 from pathlib import Path
 import asyncio
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 import time
 
 from .config import PDFProcessingConfig
@@ -53,18 +54,20 @@ class PDFPageSplitter:
     核心功能：
     1. 将PDF按自然页面切割成单页PDF文件
     2. 每页单独调用docling处理
-    3. 异步并行处理所有页面
+    3. 支持多种并行处理模式（线程池/进程池）
     4. 合并所有页面结果
     """
     
-    def __init__(self, config: Optional[PDFProcessingConfig] = None):
+    def __init__(self, config: Optional[PDFProcessingConfig] = None, use_process_pool: bool = True):
         """
         初始化PDF页面分割器
         
         Args:
             config: PDF处理配置
+            use_process_pool: 是否使用进程池（推荐用于CPU密集型任务）
         """
         self.config = config or PDFProcessingConfig()
+        self.use_process_pool = use_process_pool
         self.doc_converter = None
         self.media_extractor = MediaExtractor()
         
@@ -114,6 +117,34 @@ class PDFPageSplitter:
             print(f"❌ Docling转换器初始化失败: {e}")
             self.doc_converter = None
     
+    def _get_optimal_worker_count(self, total_tasks: int) -> int:
+        """
+        根据任务数量和系统配置计算最优worker数量
+        
+        Args:
+            total_tasks: 总任务数量
+            
+        Returns:
+            int: 最优worker数量
+        """
+        if self.use_process_pool:
+            # 进程池：考虑CPU核心数，但不超过任务数
+            cpu_count = multiprocessing.cpu_count()
+            # 为系统保留1个核心，避免系统卡顿
+            max_workers = max(1, cpu_count - 1)
+        else:
+            # 线程池：可以设置更多线程，因为docling有I/O等待
+            max_workers = self.config.media_extractor.max_workers
+        
+        # 不超过任务数量和配置的最大值
+        configured_max = self.config.media_extractor.max_workers
+        optimal_workers = min(max_workers, total_tasks, configured_max)
+        
+        print(f"💻 系统配置: CPU核心数={multiprocessing.cpu_count()}, 使用{'进程池' if self.use_process_pool else '线程池'}")
+        print(f"⚙️ 工作线程数: {optimal_workers} (总任务: {total_tasks}, 配置上限: {configured_max})")
+        
+        return optimal_workers
+
     def split_and_process_pdf(self, pdf_path: str, output_dir: str) -> List[PageData]:
         """
         分割PDF并处理每一页
@@ -199,42 +230,76 @@ class PDFPageSplitter:
     def _process_pages_parallel(self, 
                                single_page_files: List[Tuple[int, str]], 
                                output_dir: str) -> List[PageData]:
-        """并行处理所有页面"""
-        print(f"⚡ 启用并行处理模式，最大工作线程数: {self.config.media_extractor.max_workers}")
+        """并行处理所有页面（支持线程池和进程池）"""
+        
+        # 计算最优worker数量
+        optimal_workers = self._get_optimal_worker_count(len(single_page_files))
+        
+        print(f"⚡ 启用并行处理模式: {'进程池' if self.use_process_pool else '线程池'}")
+        print(f"🔧 工作进程/线程数: {optimal_workers}")
         
         pages_data = [None] * len(single_page_files)
         
-        with ThreadPoolExecutor(max_workers=self.config.media_extractor.max_workers) as executor:
-            # 提交所有任务
-            future_to_page = {
-                executor.submit(
-                    self._process_single_page, 
-                    page_num, 
-                    single_page_path, 
-                    output_dir
-                ): page_num
-                for page_num, single_page_path in single_page_files
-            }
-            
-            # 收集结果
-            for future in as_completed(future_to_page):
-                page_num = future_to_page[future]
-                try:
-                    page_data = future.result()
-                    pages_data[page_num - 1] = page_data  # 页码从1开始，索引从0开始
-                    print(f"✅ 页面 {page_num} 处理完成")
-                except Exception as e:
-                    print(f"❌ 页面 {page_num} 处理失败: {e}")
-                    # 创建空的页面数据
-                    pages_data[page_num - 1] = PageData(
-                        page_number=page_num,
-                        raw_text=f"页面 {page_num} 处理失败: {str(e)}",
-                        images=[],
-                        tables=[]
-                    )
+        # 选择执行器类型
+        executor_class = ProcessPoolExecutor if self.use_process_pool else ThreadPoolExecutor
+        
+        try:
+            with executor_class(max_workers=optimal_workers) as executor:
+                # 提交所有任务
+                if self.use_process_pool:
+                    # 进程池：需要传递可序列化的参数
+                    future_to_page = {
+                        executor.submit(
+                            _process_single_page_static,
+                            page_num, 
+                            single_page_path, 
+                            output_dir,
+                            self.config  # 传递配置对象
+                        ): page_num
+                        for page_num, single_page_path in single_page_files
+                    }
+                else:
+                    # 线程池：可以使用实例方法
+                    future_to_page = {
+                        executor.submit(
+                            self._process_single_page, 
+                            page_num, 
+                            single_page_path, 
+                            output_dir
+                        ): page_num
+                        for page_num, single_page_path in single_page_files
+                    }
+                
+                # 收集结果
+                completed_count = 0
+                for future in as_completed(future_to_page):
+                    page_num = future_to_page[future]
+                    try:
+                        page_data = future.result()
+                        pages_data[page_num - 1] = page_data  # 页码从1开始，索引从0开始
+                        completed_count += 1
+                        print(f"✅ 页面 {page_num} 处理完成 ({completed_count}/{len(single_page_files)})")
+                    except Exception as e:
+                        print(f"❌ 页面 {page_num} 处理失败: {e}")
+                        # 创建空的页面数据作为fallback
+                        pages_data[page_num - 1] = PageData(
+                            page_number=page_num,
+                            raw_text=f"页面 {page_num} 处理失败: {str(e)}",
+                            images=[],
+                            tables=[]
+                        )
+                        completed_count += 1
+                        
+        except Exception as e:
+            print(f"❌ 并行处理执行器创建失败: {e}")
+            # 回退到串行处理
+            print("🔄 回退到串行处理模式...")
+            return self._process_pages_sequential(single_page_files, output_dir)
         
         # 过滤None值
-        return [page for page in pages_data if page is not None]
+        successful_pages = [page for page in pages_data if page is not None]
+        print(f"📊 并行处理完成: {len(successful_pages)}/{len(single_page_files)} 页面成功处理")
+        return successful_pages
     
     def _process_pages_sequential(self, 
                                  single_page_files: List[Tuple[int, str]], 
@@ -456,3 +521,136 @@ class PDFPageSplitter:
             
         finally:
             doc.close() 
+
+
+def _process_single_page_static(page_num: int, 
+                               single_page_path: str, 
+                               output_dir: str,
+                               config: PDFProcessingConfig) -> PageData:
+    """
+    处理单页PDF的静态函数（用于进程池）
+    
+    Args:
+        page_num: 页码
+        single_page_path: 单页PDF文件路径
+        output_dir: 输出目录
+        config: PDF处理配置
+        
+    Returns:
+        PageData: 页面数据
+    """
+    try:
+        # 在进程内初始化docling转换器
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions, EasyOcrOptions
+        from docling.document_converter import DocumentConverter, PdfFormatOption
+        
+        # 设置本地模型路径
+        models_cache_dir = Path("models_cache")
+        artifacts_path = None
+        if models_cache_dir.exists():
+            artifacts_path = str(models_cache_dir.absolute())
+        elif config.docling.artifacts_path:
+            artifacts_path = config.docling.artifacts_path
+        
+        # 创建OCR选项
+        ocr_options = EasyOcrOptions() if config.docling.ocr_enabled else None
+        
+        # 创建管道选项
+        pipeline_options = PdfPipelineOptions(
+            ocr_options=ocr_options,
+            artifacts_path=artifacts_path
+        )
+        
+        # 设置解析选项
+        pipeline_options.images_scale = config.docling.images_scale
+        pipeline_options.generate_page_images = config.docling.generate_page_images
+        pipeline_options.generate_picture_images = config.docling.generate_picture_images
+        
+        # 创建文档转换器
+        doc_converter = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+            }
+        )
+        
+        # 创建页面专用的输出目录
+        page_output_dir = os.path.join(output_dir, f"page_{page_num}")
+        os.makedirs(page_output_dir, exist_ok=True)
+        
+        # 使用Docling处理单页PDF
+        raw_result = doc_converter.convert(Path(single_page_path))
+        
+        # 提取页面文本
+        try:
+            raw_markdown = raw_result.document.export_to_markdown()
+            page_text = raw_markdown
+        except Exception as e:
+            print(f"⚠️ 页面 {page_num} 文本提取失败: {e}")
+            page_text = f"页面 {page_num} 文本提取失败"
+        
+        # 创建页面数据
+        page_data = PageData(
+            page_number=page_num,
+            raw_text=page_text,
+            images=[],
+            tables=[]
+        )
+        
+        # 简化的媒体提取（进程池版本）
+        try:
+            # 直接使用docling结果中的图片和表格信息
+            if hasattr(raw_result.document, 'pictures'):
+                for i, picture in enumerate(raw_result.document.pictures):
+                    try:
+                        # 保存图片
+                        image_filename = f"page_{page_num}_image_{i+1}.png"
+                        image_path = os.path.join(page_output_dir, image_filename)
+                        
+                        # 创建图片上下文对象
+                        image_with_context = ImageWithContext(
+                            image_path=image_path,
+                            page_number=page_num,
+                            page_context=page_text,
+                            ai_description=None,
+                            caption=getattr(picture, 'caption', None)
+                        )
+                        
+                        page_data.images.append(image_with_context)
+                    except Exception as e:
+                        print(f"⚠️ 页面 {page_num} 图片 {i+1} 处理失败: {e}")
+            
+            if hasattr(raw_result.document, 'tables'):
+                for i, table in enumerate(raw_result.document.tables):
+                    try:
+                        # 保存表格
+                        table_filename = f"page_{page_num}_table_{i+1}.csv"
+                        table_path = os.path.join(page_output_dir, table_filename)
+                        
+                        # 创建表格上下文对象
+                        table_with_context = TableWithContext(
+                            table_path=table_path,
+                            page_number=page_num,
+                            page_context=page_text,
+                            ai_description=None,
+                            caption=getattr(table, 'caption', None)
+                        )
+                        
+                        page_data.tables.append(table_with_context)
+                    except Exception as e:
+                        print(f"⚠️ 页面 {page_num} 表格 {i+1} 处理失败: {e}")
+                        
+        except Exception as e:
+            print(f"⚠️ 页面 {page_num} 媒体提取失败: {e}")
+        
+        return page_data
+        
+    except Exception as e:
+        print(f"❌ 静态函数处理页面 {page_num} 失败: {e}")
+        # 返回失败的页面数据
+        return PageData(
+            page_number=page_num,
+            raw_text=f"页面 {page_num} 处理失败: {str(e)}",
+            images=[],
+            tables=[]
+        ) 

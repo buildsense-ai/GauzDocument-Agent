@@ -24,9 +24,50 @@ class DoclingConfig:
 class MediaExtractorConfig:
     """媒体提取器配置"""
     parallel_processing: bool = True
-    max_workers: int = 32  # 提升并发数，提高媒体处理效率
+    max_workers: int = 32  # 最大工作线程/进程数
+    
+    # 动态worker数量配置
+    use_dynamic_workers: bool = True  # 是否根据任务数量动态调整worker数
+    min_workers: int = 1  # 最小worker数量
+    
+    # 进程池配置
+    use_process_pool: bool = True  # 是否使用进程池（推荐用于CPU密集型任务）
+    reserve_cpu_cores: int = 1  # 为系统保留的CPU核心数
+    
+    # 任务分批配置
+    enable_batch_processing: bool = True  # 是否启用分批处理
+    batch_size_multiplier: float = 2.0  # 批次大小 = worker数量 * 倍数
+    
     supported_image_formats: List[str] = field(default_factory=lambda: ["PNG", "JPEG", "JPG"])
     supported_table_formats: List[str] = field(default_factory=lambda: ["PNG"])
+    
+    def get_optimal_workers(self, total_tasks: int, use_process_pool: Optional[bool] = None) -> int:
+        """
+        计算最优worker数量
+        
+        Args:
+            total_tasks: 总任务数量
+            use_process_pool: 是否使用进程池，None时使用配置值
+            
+        Returns:
+            int: 最优worker数量
+        """
+        if not self.use_dynamic_workers:
+            return min(self.max_workers, total_tasks)
+        
+        use_proc_pool = use_process_pool if use_process_pool is not None else self.use_process_pool
+        
+        if use_proc_pool:
+            # 进程池：基于CPU核心数
+            import multiprocessing
+            cpu_count = multiprocessing.cpu_count()
+            max_workers = max(self.min_workers, cpu_count - self.reserve_cpu_cores)
+        else:
+            # 线程池：可以设置更多
+            max_workers = self.max_workers
+        
+        # 最终worker数不超过任务数和配置上限
+        return min(max_workers, total_tasks, self.max_workers)
 
 
 @dataclass

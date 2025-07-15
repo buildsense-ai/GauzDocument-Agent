@@ -11,58 +11,31 @@ import re
 import os
 import asyncio
 from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # 导入AI分块器
 from .ai_chunker import AIChunker, MinimalChunk as AIMinimalChunk
+from .data_models import ChapterContent, MinimalChunk
 
-@dataclass
-class ChapterContent:
-    """第一级章节内容"""
-    chapter_id: str
-    title: str
-    content: str
-    start_pos: int
-    end_pos: int
-    word_count: int
-    has_images: bool
-    has_tables: bool
-    
-@dataclass
-class MinimalChunk:
-    """最小颗粒度分块"""
-    chunk_id: str
-    content: str
-    chunk_type: str  # title, paragraph, list_item, image_desc, table_desc
-    belongs_to_chapter: str
-    chapter_title: str
-    start_pos: int
-    end_pos: int
-    word_count: int
-    
+
 @dataclass
 class ChunkingResult:
     """分块结果"""
-    first_level_chapters: List[ChapterContent]
-    minimal_chunks: List[MinimalChunk]
-    total_chapters: int
-    total_chunks: int
-    processing_metadata: Dict[str, Any]
+    first_level_chapters: List[ChapterContent] = field(default_factory=list)
+    minimal_chunks: List[MinimalChunk] = field(default_factory=list)
+    total_chapters: int = 0
+    total_chunks: int = 0
+    processing_metadata: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
-        """
-        转换为字典格式，便于JSON序列化
-        
-        Returns:
-            Dict[str, Any]: 包含所有分块信息的字典
-        """
+        """转换为字典"""
         return {
             "first_level_chapters": [
                 {
                     "chapter_id": chapter.chapter_id,
                     "title": chapter.title,
-                    "content": chapter.content,
+                    "content": chapter.content[:200] + "..." if len(chapter.content) > 200 else chapter.content,
                     "start_pos": chapter.start_pos,
                     "end_pos": chapter.end_pos,
                     "word_count": chapter.word_count,
@@ -74,7 +47,7 @@ class ChunkingResult:
             "minimal_chunks": [
                 {
                     "chunk_id": chunk.chunk_id,
-                    "content": chunk.content,
+                    "content": chunk.content[:100] + "..." if len(chunk.content) > 100 else chunk.content,
                     "chunk_type": chunk.chunk_type,
                     "belongs_to_chapter": chunk.belongs_to_chapter,
                     "chapter_title": chunk.chapter_title,
@@ -113,7 +86,21 @@ class TextChunker:
     
     def chunk_text_with_toc(self, full_text: str, toc_result: Dict[str, Any]) -> ChunkingResult:
         """
-        基于TOC结果进行文本分块
+        基于TOC结果进行文本分块（同步版本，用于向后兼容）
+        
+        Args:
+            full_text: 完整文本
+            toc_result: TOC提取结果
+            
+        Returns:
+            ChunkingResult: 分块结果
+        """
+        # 使用asyncio.run运行异步版本
+        return asyncio.run(self.chunk_text_with_toc_async(full_text, toc_result))
+    
+    async def chunk_text_with_toc_async(self, full_text: str, toc_result: Dict[str, Any]) -> ChunkingResult:
+        """
+        基于TOC结果进行文本分块（异步版本）
         
         Args:
             full_text: 完整文本
@@ -132,8 +119,8 @@ class TextChunker:
         first_level_chapters = self._cut_first_level_chapters(full_text, first_level_toc)
         print(f"✅ 第一级章节切割完成: {len(first_level_chapters)} 个章节")
         
-        # 2. 生成最小块
-        minimal_chunks = self._generate_minimal_chunks(first_level_chapters)
+        # 2. 生成最小块（异步版本）
+        minimal_chunks = await self._generate_minimal_chunks_async(first_level_chapters)
         print(f"✅ 最小块生成完成: {len(minimal_chunks)} 个块")
         
         # 3. 构建结果
@@ -277,9 +264,26 @@ class TextChunker:
             
         return -1
     
+    async def _generate_minimal_chunks_async(self, chapters: List[ChapterContent]) -> List[MinimalChunk]:
+        """
+        生成最小颗粒度分块（异步版本）
+        
+        Args:
+            chapters: 章节内容列表
+            
+        Returns:
+            List[MinimalChunk]: 最小块列表
+        """
+        if self.use_ai_chunker and self.ai_chunker:
+            # 使用AI分块器进行真正的异步分块
+            return await self._generate_chunks_with_ai_async(chapters)
+        else:
+            # 使用传统的正则分块
+            return self._generate_chunks_with_regex(chapters)
+    
     def _generate_minimal_chunks(self, chapters: List[ChapterContent]) -> List[MinimalChunk]:
         """
-        生成最小颗粒度分块
+        生成最小颗粒度分块（同步版本，用于向后兼容）
         
         Args:
             chapters: 章节内容列表
@@ -289,13 +293,13 @@ class TextChunker:
         """
         if self.use_ai_chunker and self.ai_chunker:
             # 使用AI分块器进行异步分块
-            return self._generate_chunks_with_ai(chapters)
+            return asyncio.run(self._generate_chunks_with_ai_async(chapters))
         else:
             # 使用传统的正则分块
             return self._generate_chunks_with_regex(chapters)
     
-    def _generate_chunks_with_ai(self, chapters: List[ChapterContent]) -> List[MinimalChunk]:
-        """使用AI分块器生成分块"""
+    async def _generate_chunks_with_ai_async(self, chapters: List[ChapterContent]) -> List[MinimalChunk]:
+        """使用AI分块器生成分块（真正的异步版本）"""
         print("🤖 使用AI分块器进行智能分块...")
         
         if not self.ai_chunker:
@@ -311,9 +315,9 @@ class TextChunker:
                 'content': chapter.content
             })
         
-        # 使用AI分块器进行批量异步处理
+        # 使用AI分块器进行真正的批量异步处理
         try:
-            ai_chunks = asyncio.run(self.ai_chunker.chunk_chapters_batch(chapter_data))
+            ai_chunks = await self.ai_chunker.chunk_chapters_batch(chapter_data)
             print(f"✅ AI分块完成，共生成 {len(ai_chunks)} 个分块")
             
             # 转换为本地MinimalChunk格式
@@ -335,6 +339,10 @@ class TextChunker:
         except Exception as e:
             print(f"❌ AI分块失败，回退到正则分块: {e}")
             return self._generate_chunks_with_regex(chapters)
+    
+    def _generate_chunks_with_ai(self, chapters: List[ChapterContent]) -> List[MinimalChunk]:
+        """使用AI分块器生成分块（同步版本，保持向后兼容）"""
+        return asyncio.run(self._generate_chunks_with_ai_async(chapters))
     
     def _generate_chunks_with_regex(self, chapters: List[ChapterContent]) -> List[MinimalChunk]:
         """使用正则表达式生成分块（回退方案）"""
