@@ -62,6 +62,18 @@ class PDFParserTool(Tool):
             self.ai_chunker = AIChunker()
             self.text_chunker = TextChunker()
             
+            # Metadata处理组件
+            from .metadata_extractor import MetadataExtractor
+            from .document_summary_generator import DocumentSummaryGenerator
+            from .chapter_summary_generator import ChapterSummaryGenerator
+            from .question_generator import QuestionGenerator
+            
+            project_name = getattr(self.config, 'project_name', "default_project")
+            self.metadata_extractor = MetadataExtractor(project_name)
+            self.document_summary_generator = DocumentSummaryGenerator()
+            self.chapter_summary_generator = ChapterSummaryGenerator()
+            self.question_generator = QuestionGenerator()
+            
         except Exception as e:
             logger.error(f"组件初始化失败: {e}")
             raise
@@ -349,10 +361,90 @@ class PDFParserTool(Tool):
             except Exception as e:
                 print(f"❌ AI分块失败: {e}")
             
+            # 步骤7: Metadata处理（基于前面的所有结果）
+            print("📊 开始Metadata处理...")
+            try:
+                metadata_dir = os.path.join(output_dir, "metadata")
+                os.makedirs(metadata_dir, exist_ok=True)
+                
+                # 7.1 提取基础metadata
+                basic_metadata = self.metadata_extractor.extract_from_page_split_result(result_file)
+                document_id = basic_metadata["document"]["document_id"]
+                
+                # 处理TOC metadata（需要使用TOC文件路径）
+                if toc_result and toc_result.get("toc"):
+                    toc_metadata = self.metadata_extractor.extract_from_toc_result(toc_file, document_id)
+                    # 这里需要合并元数据，由于extract_from_toc_result返回tuple，需要处理
+                    doc_toc, chapter_mapping = toc_metadata
+                    basic_metadata["toc"] = doc_toc.__dict__
+                
+                # 提取图片和表格metadata并分配章节ID
+                if chunks_result:
+                    image_metadata = self.metadata_extractor._extract_image_metadata(result.to_dict(), document_id)
+                    table_metadata = self.metadata_extractor._extract_table_metadata(result.to_dict(), document_id)
+                    
+                    chunking_metadata = self.metadata_extractor.extract_from_chunking_result(chunks_result, image_metadata, table_metadata)
+                    basic_metadata.update(chunking_metadata)
+                
+                # 保存基础metadata
+                metadata_file = os.path.join(metadata_dir, "basic_metadata.json")
+                with open(metadata_file, 'w', encoding='utf-8') as f:
+                    json.dump(basic_metadata, f, ensure_ascii=False, indent=2)
+                
+                # 7.2 生成文档摘要
+                if chunks_result:
+                    document_summary = self.document_summary_generator.generate_document_summary(
+                        document_info=basic_metadata["document"],
+                        chunking_result=chunks_result,
+                        toc_data=toc_result,
+                        image_count=len(basic_metadata.get("images", [])),
+                        table_count=len(basic_metadata.get("tables", []))
+                    )
+                    
+                    # 保存文档摘要（document_summary是tuple）
+                    doc_summary_file = os.path.join(metadata_dir, "document_summary.json")
+                    with open(doc_summary_file, 'w', encoding='utf-8') as f:
+                        json.dump(document_summary[0].__dict__, f, ensure_ascii=False, indent=2)
+                
+                # 7.3 生成章节摘要
+                if chunks_result and chunks_result.first_level_chapters and 'chapter_mapping' in locals():
+                    chapter_summaries = self.chapter_summary_generator.generate_chapter_summaries(
+                        document_id=document_id,
+                        chunking_result=chunks_result,
+                        toc_data=toc_result,
+                        image_metadata=basic_metadata.get("images", []),
+                        table_metadata=basic_metadata.get("tables", [])
+                    )
+                    
+                    # 保存章节摘要（chapter_summaries是list of tuples）
+                    chapter_summary_file = os.path.join(metadata_dir, "chapter_summaries.json")
+                    chapter_summaries_data = [summary[0].__dict__ for summary in chapter_summaries]
+                    with open(chapter_summary_file, 'w', encoding='utf-8') as f:
+                        json.dump(chapter_summaries_data, f, ensure_ascii=False, indent=2)
+                
+                # 7.4 生成衍生问题
+                if chunks_result and chunks_result.minimal_chunks and 'chapter_mapping' in locals():
+                    derived_questions = self.question_generator.generate_questions_from_chunks(
+                        document_id=document_id,
+                        chunking_result=chunks_result,
+                        chapter_mapping=chapter_mapping
+                    )
+                    
+                    # 保存衍生问题（derived_questions是list of tuples）
+                    questions_file = os.path.join(metadata_dir, "derived_questions.json")
+                    questions_data = [question[0].__dict__ for question in derived_questions]
+                    with open(questions_file, 'w', encoding='utf-8') as f:
+                        json.dump(questions_data, f, ensure_ascii=False, indent=2)
+                
+                print(f"✅ Metadata处理完成，结果保存在: {metadata_dir}")
+                
+            except Exception as e:
+                print(f"❌ Metadata处理失败: {e}")
+            
             end_time = time.time()
             processing_time = end_time - start_time
             
-            print(f"✅ 完整流程处理完成，耗时: {processing_time:.2f} 秒")
+            print(f"✅ 完整流程处理完成（包含Metadata），耗时: {processing_time:.2f} 秒")
             
             # 构建完整的返回结果
             response_data = {

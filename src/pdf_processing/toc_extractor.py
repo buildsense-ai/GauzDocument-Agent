@@ -45,30 +45,26 @@ class TOCExtractor:
     
     def stitch_full_text(self, basic_result_path: str) -> str:
         """
-        从基础处理结果缝合完整文本
+        拼接完整文本，保持页面顺序
         
         Args:
-            basic_result_path: 基础处理结果文件路径
+            basic_result_path: 基础解析结果文件路径
             
         Returns:
-            str: 缝合后的完整文本
+            str: 拼接后的完整文本
         """
-        print("🧵 开始缝合完整文本...")
+        if not os.path.exists(basic_result_path):
+            raise FileNotFoundError(f"基础解析结果文件不存在: {basic_result_path}")
         
-        # 读取基础处理结果
         with open(basic_result_path, 'r', encoding='utf-8') as f:
-            basic_result = json.load(f)
+            data = json.load(f)
         
-        # 提取页面数据
-        pages = basic_result.get('pages', [])
-        if not pages:
-            raise ValueError("未找到页面数据")
-        
-        # 按页码排序
-        pages.sort(key=lambda x: x.get('page_number', 0))
-        
-        # 缝合文本（去除页码噪音）
+        pages = data.get('pages', [])
         full_text_parts = []
+        
+        # 全局计数器，用于生成唯一ID
+        global_image_counter = 0
+        global_table_counter = 0
         
         for page in pages:
             cleaned_text = page.get('cleaned_text', '') or ''
@@ -79,21 +75,29 @@ class TOCExtractor:
             if cleaned_text and cleaned_text.strip():
                 full_text_parts.append(cleaned_text.strip())
             
-            # 添加图片描述
+            # 添加图片描述（包含唯一标识符）
             for image in images:
+                global_image_counter += 1
                 description = image.get('ai_description', '图片描述') or '图片描述'
-                full_text_parts.append(f"[图片: {description}]")
+                image_path = image.get('image_path', '')
+                # 格式：[图片|ID:xxx|PATH:xxx: 描述]
+                full_text_parts.append(f"[图片|ID:{global_image_counter}|PATH:{image_path}: {description}]")
             
-            # 添加表格描述
+            # 添加表格描述（包含唯一标识符）
             for table in tables:
+                global_table_counter += 1
                 description = table.get('ai_description', '表格描述') or '表格描述'
-                full_text_parts.append(f"[表格: {description}]")
+                table_path = table.get('table_path', '')
+                # 格式：[表格|ID:xxx|PATH:xxx: 描述]
+                full_text_parts.append(f"[表格|ID:{global_table_counter}|PATH:{table_path}: {description}]")
         
         # 用双换行连接，保持段落分隔
         full_text = "\n\n".join(full_text_parts)
         
         print(f"✅ 文本缝合完成，总长度: {len(full_text)} 字符")
         print(f"📄 总页数: {len(pages)}")
+        print(f"🖼️ 包含图片: {global_image_counter} 个")
+        print(f"📊 包含表格: {global_table_counter} 个")
         
         return full_text
     
