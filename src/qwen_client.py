@@ -109,6 +109,127 @@ class QwenClient:
         """
         return self.generate_response(prompt, system_prompt)
     
+    def generate_response_with_reasoning(
+        self, 
+        prompt: str, 
+        system_prompt: Optional[str] = None,
+        enable_thinking: bool = True,
+        stream: bool = True
+    ) -> tuple[str, str]:
+        """
+        生成带推理过程的响应（支持streaming和reasoning模式）
+        
+        Args:
+            prompt: 用户提示
+            system_prompt: 系统提示（可选）
+            enable_thinking: 是否启用推理模式
+            stream: 是否使用流式输出
+            
+        Returns:
+            tuple[str, str]: (响应内容, 推理内容)
+        """
+        messages = []
+        
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        
+        messages.append({"role": "user", "content": prompt})
+        
+        return self._call_api_with_reasoning(messages, enable_thinking, stream)
+    
+    def _call_api_with_reasoning(
+        self, 
+        messages: List[Dict[str, str]], 
+        enable_thinking: bool = True,
+        stream: bool = True
+    ) -> tuple[str, str]:
+        """
+        调用API的核心方法（支持推理模式）
+        
+        Args:
+            messages: 消息列表
+            enable_thinking: 是否启用推理模式
+            stream: 是否使用流式输出
+            
+        Returns:
+            tuple[str, str]: (响应内容, 推理内容)
+        """
+        for attempt in range(self.max_retries):
+            try:
+                self.request_stats["total_requests"] += 1
+                
+                # 构建API调用参数
+                api_params = {
+                    "model": self.model,
+                    "messages": messages,
+                    "temperature": self.temperature,
+                    "stream": stream
+                }
+                
+                # 添加推理模式参数
+                if enable_thinking:
+                    api_params["extra_body"] = {
+                        "enable_thinking": True
+                    }
+                
+                # 调用API
+                response = self.client.chat.completions.create(**api_params)
+                
+                if stream:
+                    # 处理流式响应
+                    content_chunks = []
+                    reasoning_chunks = []
+                    
+                    for chunk in response:
+                        if chunk.choices:
+                            delta = chunk.choices[0].delta
+                            
+                            # 收集主要内容
+                            if hasattr(delta, 'content') and delta.content:
+                                content_chunks.append(delta.content)
+                            
+                            # 收集推理内容
+                            if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                                reasoning_chunks.append(delta.reasoning_content)
+                    
+                    content = ''.join(content_chunks)
+                    reasoning_content = ''.join(reasoning_chunks)
+                    
+                else:
+                    # 非流式响应
+                    content = response.choices[0].message.content
+                    reasoning_content = getattr(response.choices[0].message, 'reasoning_content', '') if hasattr(response.choices[0].message, 'reasoning_content') else ''
+                
+                # 更新统计信息
+                self.request_stats["successful_requests"] += 1
+                if hasattr(response, 'usage') and response.usage:
+                    self.request_stats["total_tokens"] += response.usage.total_tokens
+                
+                return content, reasoning_content
+                
+            except Exception as e:
+                self.request_stats["failed_requests"] += 1
+                error_msg = str(e)
+                
+                # 分类错误类型
+                if "timeout" in error_msg.lower():
+                    self.request_stats["timeout_errors"] += 1
+                    print(f"⏱️ 请求超时 (尝试 {attempt + 1}/{self.max_retries}): {error_msg}")
+                else:
+                    self.request_stats["api_errors"] += 1
+                    print(f"❌ API错误 (尝试 {attempt + 1}/{self.max_retries}): {error_msg}")
+                
+                # 如果不是最后一次尝试，等待后重试
+                if attempt < self.max_retries - 1:
+                    wait_time = (attempt + 1) * 2  # 指数退避
+                    print(f"⏳ 等待 {wait_time} 秒后重试...")
+                    time.sleep(wait_time)
+                else:
+                    # 最后一次尝试失败，抛出异常
+                    raise Exception(f"API调用失败，已重试 {self.max_retries} 次: {error_msg}")
+        
+        return "", ""
+    
     def batch_generate_responses(self, prompts: List[str], system_prompt: Optional[str] = None, max_workers: int = 10) -> List[str]:
         """
         批量生成响应（并行处理）

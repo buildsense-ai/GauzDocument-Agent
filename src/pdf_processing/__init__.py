@@ -9,9 +9,10 @@ from .data_models import PageData, ImageWithContext, TableWithContext, Processin
 from .media_extractor import MediaExtractor
 from .pdf_document_parser import PDFDocumentParser
 from .ai_content_reorganizer import AIContentReorganizer
-from .document_structure_analyzer import DocumentStructureAnalyzer, DocumentStructure, MinimalChunk, ChapterInfo
-from .metadata_enricher import MetadataEnricher, EnrichedChunk, ChapterSummary, IndexStructure
 from .pdf_parser_tool import PDFParserTool
+from .toc_extractor import TOCExtractor
+from .ai_chunker import AIChunker
+from .text_chunker import TextChunker
 
 # 便捷函数
 def get_config():
@@ -30,17 +31,21 @@ def create_ai_content_reorganizer(config=None):
     """创建AI内容重组器"""
     return AIContentReorganizer(config)
 
-def create_structure_analyzer(config=None):
-    """创建文档结构分析器"""
-    return DocumentStructureAnalyzer(config)
-
-def create_metadata_enricher(config=None):
-    """创建元数据增强器"""
-    return MetadataEnricher(config)
-
 def create_pdf_parser_tool(config=None):
     """创建PDF解析工具"""
     return PDFParserTool(config)
+
+def create_toc_extractor(model="qwen-plus"):
+    """创建TOC提取器"""
+    return TOCExtractor(model)
+
+def create_ai_chunker(model="qwen-turbo"):
+    """创建AI分块器"""
+    return AIChunker(model)
+
+def create_text_chunker(use_ai_chunker=True, ai_model="qwen-turbo"):
+    """创建文本分块器"""
+    return TextChunker(use_ai_chunker, ai_model)
 
 __all__ = [
     # 配置类
@@ -63,14 +68,9 @@ __all__ = [
     'AIContentReorganizer',
     
     # 高级处理组件
-    'DocumentStructureAnalyzer',
-    'DocumentStructure',
-    'MinimalChunk',
-    'ChapterInfo',
-    'MetadataEnricher',
-    'EnrichedChunk',
-    'ChapterSummary',
-    'IndexStructure',
+    'TOCExtractor',
+    'AIChunker',
+    'TextChunker',
     
     # 统一工具接口
     'PDFParserTool',
@@ -80,9 +80,10 @@ __all__ = [
     'create_document_parser',
     'create_media_extractor',
     'create_ai_content_reorganizer',
-    'create_structure_analyzer',
-    'create_metadata_enricher',
     'create_pdf_parser_tool',
+    'create_toc_extractor',
+    'create_ai_chunker',
+    'create_text_chunker',
     'create_output_directory',
     'validate_config'
 ] 

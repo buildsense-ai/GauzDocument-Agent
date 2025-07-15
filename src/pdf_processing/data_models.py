@@ -22,6 +22,17 @@ class ImageWithContext:
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式"""
+        return {
+            "image_path": self.image_path,
+            "page_number": self.page_number,
+            "page_context": self.page_context,
+            "ai_description": self.ai_description,
+            "caption": self.caption,
+            "metadata": self.metadata
+        }
 
 
 @dataclass
@@ -37,6 +48,17 @@ class TableWithContext:
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式"""
+        return {
+            "table_path": self.table_path,
+            "page_number": self.page_number,
+            "page_context": self.page_context,
+            "ai_description": self.ai_description,
+            "caption": self.caption,
+            "metadata": self.metadata
+        }
 
 
 @dataclass
@@ -53,6 +75,16 @@ class PageData:
             self.images = []
         if self.tables is None:
             self.tables = []
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式"""
+        return {
+            "page_number": self.page_number,
+            "raw_text": self.raw_text,
+            "cleaned_text": self.cleaned_text,
+            "images": [img.to_dict() for img in self.images],
+            "tables": [table.to_dict() for table in self.tables]
+        }
 
 
 @dataclass
