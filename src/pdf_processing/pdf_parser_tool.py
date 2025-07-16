@@ -19,7 +19,10 @@ from .toc_extractor import TOCExtractor
 from .ai_chunker import AIChunker
 from .text_chunker import TextChunker
 from .data_models import ProcessingResult, PageData, ImageWithContext, TableWithContext
-from ..base_tool import Tool
+try:
+    from ..base_tool import Tool
+except ImportError:
+    from base_tool import Tool
 
 logger = logging.getLogger(__name__)
 
@@ -386,10 +389,11 @@ class PDFParserTool(Tool):
                     chunking_metadata = self.metadata_extractor.extract_from_chunking_result(chunks_result, image_metadata, table_metadata)
                     basic_metadata.update(chunking_metadata)
                 
-                # 保存基础metadata
-                metadata_file = os.path.join(metadata_dir, "basic_metadata.json")
-                with open(metadata_file, 'w', encoding='utf-8') as f:
-                    json.dump(basic_metadata, f, ensure_ascii=False, indent=2)
+                # 保存基础metadata（使用metadata_extractor的正确序列化方法）
+                self.metadata_extractor.save_extracted_metadata(
+                    metadata_dir,
+                    basic=basic_metadata
+                )
                 
                 # 7.2 生成文档摘要
                 if chunks_result:
@@ -404,7 +408,7 @@ class PDFParserTool(Tool):
                     # 保存文档摘要（document_summary是tuple）
                     doc_summary_file = os.path.join(metadata_dir, "document_summary.json")
                     with open(doc_summary_file, 'w', encoding='utf-8') as f:
-                        json.dump(document_summary[0].__dict__, f, ensure_ascii=False, indent=2)
+                        json.dump(document_summary[0].__dict__, f, ensure_ascii=False, indent=2, default=str)
                 
                 # 7.3 生成章节摘要
                 if chunks_result and chunks_result.first_level_chapters and 'chapter_mapping' in locals():
@@ -420,7 +424,7 @@ class PDFParserTool(Tool):
                     chapter_summary_file = os.path.join(metadata_dir, "chapter_summaries.json")
                     chapter_summaries_data = [summary[0].__dict__ for summary in chapter_summaries]
                     with open(chapter_summary_file, 'w', encoding='utf-8') as f:
-                        json.dump(chapter_summaries_data, f, ensure_ascii=False, indent=2)
+                        json.dump(chapter_summaries_data, f, ensure_ascii=False, indent=2, default=str)
                 
                 # 7.4 生成衍生问题
                 if chunks_result and chunks_result.minimal_chunks and 'chapter_mapping' in locals():
@@ -434,7 +438,7 @@ class PDFParserTool(Tool):
                     questions_file = os.path.join(metadata_dir, "derived_questions.json")
                     questions_data = [question[0].__dict__ for question in derived_questions]
                     with open(questions_file, 'w', encoding='utf-8') as f:
-                        json.dump(questions_data, f, ensure_ascii=False, indent=2)
+                        json.dump(questions_data, f, ensure_ascii=False, indent=2, default=str)
                 
                 print(f"✅ Metadata处理完成，结果保存在: {metadata_dir}")
                 
