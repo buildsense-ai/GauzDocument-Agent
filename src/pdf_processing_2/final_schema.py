@@ -36,27 +36,31 @@ class ProcessingStatus:
         }
 
 
-@dataclass 
-class DocumentSummaryChunk:
-    """文档摘要chunk - 包含完整文档文本和AI摘要"""
+@dataclass
+class DocumentSummary:
     content_id: str
     document_id: str
-    content: str  # full_raw_text，用于后续处理和恢复
     content_type: str = "document_summary"
     content_level: str = "document"
     
-    # AI增强信息
-    ai_summary: Optional[str] = None  # AI生成的文档摘要
+    # 原始数据字段
+    full_raw_text: Optional[str] = None      # 重命名：完整原始文本
+    ai_summary: Optional[str] = None         # AI生成的文档摘要
     
-    # 文档基础信息
+    # 文档元信息
     source_file_path: str = ""
     file_name: str = ""
     file_size: int = 0
     
-    # 页面文本信息 - V2新增
-    page_texts: Optional[Dict[str, str]] = None  # 页码 -> 完整页面原始文本，用于精确的上下文提取
+    # 页面文本数据
+    page_texts: Optional[Dict[str, str]] = None          # Stage1: 原始页面文本
+    cleaned_page_texts: Optional[Dict[str, str]] = None  # Stage2: 清洗后的页面文本
     
-    # 统计信息
+    # 文档结构数据 - 新增字段
+    toc: Optional[List[Dict[str, Any]]] = None           # Stage2: TOC结构（直接存储）
+    metadata: Optional[Dict[str, Any]] = None            # Stage2: 其他文档结构信息
+    
+    # 文档统计
     total_pages: int = 0
     total_word_count: Optional[int] = None
     chapter_count: Optional[int] = None
@@ -64,142 +68,181 @@ class DocumentSummaryChunk:
     table_count: int = 0
     
     # 处理信息
-    processing_time: Optional[float] = None
-    created_at: datetime = field(default_factory=datetime.now)
-
+    processing_time: float = 0.0
+    created_at: Optional[str] = None
+    
+    # 要被embedding的内容（优先使用ai_summary，如果没有则使用full_raw_text的开头）
+    @property
+    def content(self) -> str:
+        """返回要被embedding的内容"""
+        if self.ai_summary:
+            return self.ai_summary
+        elif self.full_raw_text:
+            # 如果没有AI摘要，返回原文前2000字符作为fallback
+            return self.full_raw_text[:2000] + "..." if len(self.full_raw_text) > 2000 else self.full_raw_text
+        else:
+            return ""
 
 @dataclass
 class ImageChunk:
-    """图片chunk"""
     content_id: str
     document_id: str
     content_type: str = "image_chunk"
     content_level: str = "chunk"
     
-    # 核心内容
-    content: Optional[str] = None  # AI生成的图片描述
-    
-    # 文件信息
+    # 图片文件信息
     image_path: str = ""
     page_number: int = 0
     caption: str = ""
-    
-    # 位置信息
     chapter_id: Optional[str] = None
     page_context: str = ""
     
-    # 尺寸信息
+    # 图片尺寸信息
     width: int = 0
     height: int = 0
     size: int = 0
     aspect_ratio: float = 0.0
     
-    # AI增强信息
-    ai_description: Optional[str] = None
+    # AI生成的描述信息
+    search_summary: Optional[str] = None        # 简述 - 15字以内的搜索关键词
+    detailed_description: Optional[str] = None  # 详细描述 - 完整的图片内容描述
+    engineering_details: Optional[str] = None   # 工程技术细节（仅技术图纸）
     
     # 处理信息
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: Optional[str] = field(default_factory=lambda: datetime.now().isoformat())
+    
+    # 要被embedding的内容
+    @property 
+    def content(self) -> str:
+        """返回要被embedding的内容 - 组合描述信息"""
+        parts = []
+        
+        if self.search_summary:
+            parts.append(f"概述: {self.search_summary}")
+        
+        if self.detailed_description:
+            parts.append(f"详情: {self.detailed_description}")
+            
+        if self.engineering_details:
+            parts.append(f"技术细节: {self.engineering_details}")
+        
+        if self.page_context:
+            parts.append(f"上下文: {self.page_context}")
+            
+        return " | ".join(parts) if parts else f"图片: {self.caption or '无标题'}"
 
-
-@dataclass
+@dataclass 
 class TableChunk:
-    """表格chunk"""
     content_id: str
     document_id: str
     content_type: str = "table_chunk"
     content_level: str = "chunk"
     
-    # 核心内容
-    content: Optional[str] = None  # AI生成的表格描述
-    
-    # 文件信息
+    # 表格文件信息
     table_path: str = ""
     page_number: int = 0
     caption: str = ""
-    
-    # 位置信息
     chapter_id: Optional[str] = None
     page_context: str = ""
     
-    # 尺寸信息
+    # 表格尺寸信息
     width: int = 0
     height: int = 0
     size: int = 0
     aspect_ratio: float = 0.0
     
-    # AI增强信息
-    ai_description: Optional[str] = None
+    # AI生成的描述信息
+    search_summary: Optional[str] = None        # 简述 - 表格类型和关键信息
+    detailed_description: Optional[str] = None  # 详细描述 - 表格结构和内容
+    engineering_details: Optional[str] = None   # 技术分析 - 数据含义和技术解读
     
     # 处理信息
-    created_at: datetime = field(default_factory=datetime.now)
-
+    created_at: Optional[str] = field(default_factory=lambda: datetime.now().isoformat())
+    
+    # 要被embedding的内容
+    @property
+    def content(self) -> str:
+        """返回要被embedding的内容 - 组合描述信息"""
+        parts = []
+        
+        if self.search_summary:
+            parts.append(f"概述: {self.search_summary}")
+        
+        if self.detailed_description:
+            parts.append(f"详情: {self.detailed_description}")
+            
+        if self.engineering_details:
+            parts.append(f"技术分析: {self.engineering_details}")
+        
+        if self.page_context:
+            parts.append(f"上下文: {self.page_context}")
+            
+        return " | ".join(parts) if parts else f"表格: {self.caption or '无标题'}"
 
 @dataclass
 class TextChunk:
-    """文本chunk"""
     content_id: str
     document_id: str
-    content: str = ""
     content_type: str = "text_chunk"
     content_level: str = "chunk"
     
-    # 位置信息
-    chapter_id: str = ""
-    chunk_type: str = ""  # paragraph, list_item, title, etc.
-    position_in_chapter: int = 0
+    # 要被embedding的内容 - 这是核心字段
+    content: str = ""
     
-    # 统计信息
+    # 元信息
+    chapter_id: Optional[str] = ""
+    page_number: Optional[int] = None
+    chunk_index: int = 0
     word_count: int = 0
     
-    # 上下文信息
-    preceding_chunk_id: Optional[str] = None
-    following_chunk_id: Optional[str] = None
-    
     # 处理信息
-    created_at: datetime = field(default_factory=datetime.now)
-
+    created_at: Optional[str] = field(default_factory=lambda: datetime.now().isoformat())
 
 @dataclass
-class ChapterSummaryChunk:
-    """章节摘要chunk"""
+class ChapterSummary:
     content_id: str
     document_id: str
-    content: str = ""  # AI生成的章节摘要
     content_type: str = "chapter_summary"
     content_level: str = "chapter"
     
     # 章节信息
     chapter_id: str = ""
     chapter_title: str = ""
-    chapter_order: int = 0
+    page_range: Optional[str] = None
+    
+    # 原始和处理后的内容
+    raw_content: Optional[str] = None       # 章节原始文本
+    ai_summary: Optional[str] = None        # AI生成的章节摘要
     
     # 统计信息
     word_count: int = 0
-    paragraph_count: int = 0
-    text_chunk_count: int = 0
-    image_count: int = 0
-    table_count: int = 0
     
     # 处理信息
-    created_at: datetime = field(default_factory=datetime.now)
-
+    created_at: Optional[str] = field(default_factory=lambda: datetime.now().isoformat())
+    
+    # 要被embedding的内容
+    @property
+    def content(self) -> str:
+        """返回要被embedding的内容"""
+        return self.ai_summary or self.raw_content or ""
 
 @dataclass
-class DerivedQuestionChunk:
-    """衍生问题chunk"""
+class DerivedQuestion:
     content_id: str
     document_id: str
-    content: str = ""  # 问题内容
     content_type: str = "derived_question"
-    content_level: str = "question"
+    content_level: str = "document"
     
-    # 生成信息
-    chapter_id: str = ""
-    question_category: str = ""
-    generated_from_chunk_id: str = ""
+    # 要被embedding的内容 - 问题本身
+    content: str = ""  # 这就是问题文本
+    
+    # 问题元信息
+    question_type: str = ""
+    source_context: Optional[str] = None
+    confidence_score: Optional[float] = None
     
     # 处理信息
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: Optional[str] = field(default_factory=lambda: datetime.now().isoformat())
 
 
 class FinalMetadataSchema:
@@ -219,12 +262,12 @@ class FinalMetadataSchema:
         self.document_id = document_id or self._generate_document_id()
         
         # 初始化空的schema结构
-        self.document_summary: Optional[DocumentSummaryChunk] = None
+        self.document_summary: Optional[DocumentSummary] = None
         self.image_chunks: List[ImageChunk] = []
         self.table_chunks: List[TableChunk] = []
         self.text_chunks: List[TextChunk] = []
-        self.chapter_summaries: List[ChapterSummaryChunk] = []
-        self.derived_questions: List[DerivedQuestionChunk] = []
+        self.chapter_summaries: List[ChapterSummary] = []
+        self.derived_questions: List[DerivedQuestion] = []
         
         # 处理状态
         self.processing_status = ProcessingStatus(
@@ -282,21 +325,25 @@ class FinalMetadataSchema:
         # 恢复document_summary
         if data["document_summary"]:
             ds_data = data["document_summary"]
-            schema.document_summary = DocumentSummaryChunk(
+            schema.document_summary = DocumentSummary(
                 content_id=ds_data["content_id"],
                 document_id=ds_data["document_id"],
-                content=ds_data["content"],
+                full_raw_text=ds_data.get("full_raw_text"),
                 ai_summary=ds_data.get("ai_summary"),
                 source_file_path=ds_data.get("source_file_path", ""),
                 file_name=ds_data.get("file_name", ""),
                 file_size=ds_data.get("file_size", 0),
+                page_texts=ds_data.get("page_texts"),
+                cleaned_page_texts=ds_data.get("cleaned_page_texts"),
+                toc=ds_data.get("toc"),
+                metadata=ds_data.get("metadata"),
                 total_pages=ds_data.get("total_pages", 0),
                 total_word_count=ds_data.get("total_word_count"),
                 chapter_count=ds_data.get("chapter_count"),
                 image_count=ds_data.get("image_count", 0),
                 table_count=ds_data.get("table_count", 0),
-                processing_time=ds_data.get("processing_time"),
-                created_at=datetime.fromisoformat(ds_data["created_at"])
+                processing_time=ds_data.get("processing_time", 0.0),
+                created_at=ds_data.get("created_at")
             )
         
         # 恢复image_chunks
@@ -313,8 +360,10 @@ class FinalMetadataSchema:
                 height=img_data.get("height", 0),
                 size=img_data.get("size", 0),
                 aspect_ratio=img_data.get("aspect_ratio", 0.0),
-                ai_description=img_data.get("ai_description"),
-                created_at=datetime.fromisoformat(img_data["created_at"])
+                search_summary=img_data.get("search_summary"),
+                detailed_description=img_data.get("detailed_description"),
+                engineering_details=img_data.get("engineering_details"),
+                created_at=img_data.get("created_at")
             )
             schema.image_chunks.append(image_chunk)
         
@@ -332,8 +381,10 @@ class FinalMetadataSchema:
                 height=table_data.get("height", 0),
                 size=table_data.get("size", 0),
                 aspect_ratio=table_data.get("aspect_ratio", 0.0),
-                ai_description=table_data.get("ai_description"),
-                created_at=datetime.fromisoformat(table_data["created_at"])
+                search_summary=table_data.get("search_summary"),
+                detailed_description=table_data.get("detailed_description"),
+                engineering_details=table_data.get("engineering_details"),
+                created_at=table_data.get("created_at")
             )
             schema.table_chunks.append(table_chunk)
         
@@ -344,43 +395,38 @@ class FinalMetadataSchema:
                 document_id=text_data["document_id"],
                 content=text_data["content"],
                 chapter_id=text_data.get("chapter_id", ""),
-                chunk_type=text_data.get("chunk_type", ""),
-                position_in_chapter=text_data.get("position_in_chapter", 0),
+                page_number=text_data.get("page_number"),
+                chunk_index=text_data.get("chunk_index", 0),
                 word_count=text_data.get("word_count", 0),
-                preceding_chunk_id=text_data.get("preceding_chunk_id"),
-                following_chunk_id=text_data.get("following_chunk_id"),
-                created_at=datetime.fromisoformat(text_data["created_at"])
+                created_at=text_data.get("created_at")
             )
             schema.text_chunks.append(text_chunk)
         
         # 恢复chapter_summaries
         for chapter_data in data.get("chapter_summaries", []):
-            chapter_chunk = ChapterSummaryChunk(
+            chapter_chunk = ChapterSummary(
                 content_id=chapter_data["content_id"],
                 document_id=chapter_data["document_id"],
-                content=chapter_data["content"],
+                raw_content=chapter_data.get("raw_content"),
+                ai_summary=chapter_data.get("ai_summary"),
                 chapter_id=chapter_data.get("chapter_id", ""),
                 chapter_title=chapter_data.get("chapter_title", ""),
-                chapter_order=chapter_data.get("chapter_order", 0),
+                page_range=chapter_data.get("page_range"),
                 word_count=chapter_data.get("word_count", 0),
-                paragraph_count=chapter_data.get("paragraph_count", 0),
-                text_chunk_count=chapter_data.get("text_chunk_count", 0),
-                image_count=chapter_data.get("image_count", 0),
-                table_count=chapter_data.get("table_count", 0),
-                created_at=datetime.fromisoformat(chapter_data["created_at"])
+                created_at=chapter_data.get("created_at")
             )
             schema.chapter_summaries.append(chapter_chunk)
         
         # 恢复derived_questions
         for question_data in data.get("derived_questions", []):
-            question_chunk = DerivedQuestionChunk(
+            question_chunk = DerivedQuestion(
                 content_id=question_data["content_id"],
                 document_id=question_data["document_id"],
                 content=question_data["content"],
-                chapter_id=question_data.get("chapter_id", ""),
-                question_category=question_data.get("question_category", ""),
-                generated_from_chunk_id=question_data.get("generated_from_chunk_id", ""),
-                created_at=datetime.fromisoformat(question_data["created_at"])
+                question_type=question_data.get("question_type", ""),
+                source_context=question_data.get("source_context"),
+                confidence_score=question_data.get("confidence_score"),
+                created_at=question_data.get("created_at")
             )
             schema.derived_questions.append(question_chunk)
         
@@ -410,13 +456,13 @@ class FinalMetadataSchema:
         # 检查image_chunks的AI描述
         for img in self.image_chunks:
             total_fields += 1
-            if img.ai_description:
+            if img.search_summary or img.detailed_description or img.engineering_details:
                 completed_fields += 1
         
         # 检查table_chunks的AI描述
         for table in self.table_chunks:
             total_fields += 1
-            if table.ai_description:
+            if table.search_summary or table.detailed_description or table.engineering_details:
                 completed_fields += 1
         
         # 检查其他chunks
@@ -437,8 +483,8 @@ class FinalMetadataSchema:
                    bool(self.document_summary.content) and
                    (len(self.image_chunks) > 0 or len(self.table_chunks) > 0))
         elif stage == "stage2":
-            ai_descriptions_complete = all(bool(img.ai_description) for img in self.image_chunks)
-            ai_descriptions_complete &= all(bool(table.ai_description) for table in self.table_chunks)
+            ai_descriptions_complete = all(bool(img.search_summary) or bool(img.detailed_description) or bool(img.engineering_details) for img in self.image_chunks)
+            ai_descriptions_complete &= all(bool(table.search_summary) or bool(table.detailed_description) or bool(table.engineering_details) for table in self.table_chunks)
             return (ai_descriptions_complete and 
                    self.document_summary is not None and 
                    self.document_summary.ai_summary is not None)

@@ -45,7 +45,7 @@ from pdf_processing.config import PDFProcessingConfig
 from pdf_processing.data_models import PageData, ImageWithContext, TableWithContext
 
 # 导入V2版本的Schema
-from .final_schema import FinalMetadataSchema, DocumentSummaryChunk, ImageChunk, TableChunk
+from .final_schema import FinalMetadataSchema, DocumentSummary, ImageChunk, TableChunk
 
 
 class Stage1DoclingProcessor:
@@ -139,21 +139,49 @@ class Stage1DoclingProcessor:
             elif self.config.docling.artifacts_path:
                 artifacts_path = self.config.docling.artifacts_path
             
+            # 🔧 配置离线模式，避免网络连接问题
+            import os
+            os.environ['HF_HUB_OFFLINE'] = '1'  # 强制HuggingFace Hub离线模式
+            os.environ['TRANSFORMERS_OFFLINE'] = '1'  # Transformers离线模式
+            print("🔒 已启用离线模式，避免网络连接问题")
+            
             # 创建管道选项
             if self.config.docling.ocr_enabled:
-                # 🔥 直接设置OCR配置，核心设置：force_full_page_ocr = True
+                # 🔥 增强OCR配置，确保文字提取成功
                 ocr_options = EasyOcrOptions()
                 try:
-                    ocr_options.force_full_page_ocr = True
-                    print("✅ 应用关键OCR设置：force_full_page_ocr=True（主进程）")
+                    # 核心OCR设置
+                    ocr_options.force_full_page_ocr = True  # 强制全页OCR
+                    
+                    # 🚀 添加更多OCR优化设置（只使用实际存在的属性）
+                    if hasattr(ocr_options, 'use_gpu'):
+                        ocr_options.use_gpu = False  # 强制使用CPU，避免GPU兼容性问题
+                    
+                    if hasattr(ocr_options, 'lang'):
+                        ocr_options.lang = ['ch_sim', 'en']  # 支持中英文
+                    
+                    if hasattr(ocr_options, 'confidence_threshold'):
+                        ocr_options.confidence_threshold = 0.3  # 降低置信度阈值，提高检出率
+                    
+                    if hasattr(ocr_options, 'bitmap_area_threshold'):
+                        ocr_options.bitmap_area_threshold = 0.01  # 降低区域阈值，检测更小文字
+                    
+                    print("✅ 应用增强OCR设置：")
+                    print("   - force_full_page_ocr=True（强制全页OCR）")
+                    print("   - use_gpu=False（CPU模式，避免兼容性问题）")
+                    print("   - lang=['ch_sim', 'en']（中英文支持）")
+                    print("   - confidence_threshold=0.3（降低置信度阈值）")
+                    print("   - bitmap_area_threshold=0.01（检测更小文字）")
+                    
                 except Exception as e:
-                    print(f"⚠️ 应用关键OCR设置失败: {e}")
+                    print(f"⚠️ 应用增强OCR设置失败: {e}")
                 
                 pipeline_options = PdfPipelineOptions(
                     ocr_options=ocr_options,
                     artifacts_path=artifacts_path
                 )
             else:
+                print("⚠️ OCR已禁用，可能导致文字提取不完整")
                 pipeline_options = PdfPipelineOptions(
                     artifacts_path=artifacts_path
                 )
@@ -163,6 +191,13 @@ class Stage1DoclingProcessor:
             pipeline_options.generate_page_images = self.config.docling.generate_page_images
             pipeline_options.generate_picture_images = self.config.docling.generate_picture_images
             
+            # 🚀 添加更多解析选项
+            if hasattr(pipeline_options, 'do_ocr'):
+                pipeline_options.do_ocr = True  # 确保OCR执行
+            
+            if hasattr(pipeline_options, 'do_table_structure'):
+                pipeline_options.do_table_structure = True  # 表格结构识别
+            
             # 创建文档转换器
             self.doc_converter = DocumentConverter(
                 format_options={
@@ -170,7 +205,7 @@ class Stage1DoclingProcessor:
                 }
             )
             
-            print("✅ Docling转换器初始化成功")
+            print("✅ Docling转换器初始化成功（增强OCR配置）")
             
         except Exception as e:
             print(f"❌ Docling转换器初始化失败: {e}")
@@ -411,113 +446,202 @@ class Stage1DoclingProcessor:
         print(f"⚡ 启用并行处理模式: {'进程池' if self.use_process_pool else '线程池'}")
         print(f"🔧 工作进程/线程数: {optimal_workers}")
         
+        # 🔄 重试机制配置
+        max_retries = 3  # 最大重试次数
+        retry_delay = 2.0  # 重试间隔（秒）
+        
+        print(f"🔄 重试配置: 最大{max_retries}次重试，间隔{retry_delay}秒")
+        
         # 🎭 为什么需要这个复杂的列表？
         # - 并行处理的结果可能乱序返回（页面2可能比页面1先完成）
         # - 我们需要按页码顺序重新排列结果
         # - 预分配列表确保每个页面都有固定位置
         pages_data: List[Optional[PageData]] = [None] * len(single_page_files)
         
+        # 🔄 重试队列管理
+        current_batch = single_page_files.copy()  # 当前处理批次
+        retry_count = 0
+        
         # 🏭 选择合适的"工厂"类型
         executor_class = ProcessPoolExecutor if self.use_process_pool else ThreadPoolExecutor
         
-        try:
-            # 🎪 开始并行处理的"马戏团表演"
-            with executor_class(max_workers=optimal_workers) as executor:
-                # 📋 任务分发：把工作分配给不同的worker
-                if self.use_process_pool:
-                    # 🏭 进程池模式：
-                    # 
-                    # ⚠️ 重要限制：进程之间不能直接共享对象！
-                    # - 不能传递 self（类实例）
-                    # - 必须使用独立的静态函数
-                    # - 所有参数都要能"序列化"（转换成二进制数据传输）
-                    # 
-                    # 💾 数据传输开销：
-                    # - 每个进程启动时都要传递config对象
-                    # - 进程间通信通过管道/共享内存
-                    # - 这就是为什么进程启动比线程慢的原因
-                    
-                    future_to_page = {
-                        executor.submit(
-                            _process_single_page_static,  # 📞 调用独立的静态函数
-                            page_num, 
-                            single_page_path, 
-                            output_dir,
-                            self.config  # 🚚 配置对象会被"打包"发送给子进程
-                        ): page_num
-                        for page_num, single_page_path in single_page_files
-                    }
-                    
-                    print(f"🚀 已向{optimal_workers}个独立进程分发{len(single_page_files)}个任务")
-                    print(f"💡 每个进程都是独立的Python解释器，可以充分利用CPU核心")
-                    
-                else:
-                    # 🧵 线程池模式：
-                    # 
-                    # ✅ 便利性：可以直接调用类方法
-                    # - 所有线程共享同一个内存空间
-                    # - 可以直接访问 self 和所有实例变量
-                    # - 数据传递几乎没有开销
-                    # 
-                    # ⚠️ GIL限制：
-                    # - Python的全局解释器锁意味着同时只有一个线程在执行Python代码
-                    # - 对于纯CPU任务，多线程可能不会带来速度提升
-                    # - 但docling中有很多C扩展和I/O操作，这些可以释放GIL
-                    
-                    future_to_page = {
-                        executor.submit(
-                            self._process_single_page,  # 📞 直接调用实例方法
-                            page_num, 
-                            single_page_path, 
-                            output_dir
-                        ): page_num
-                        for page_num, single_page_path in single_page_files
-                    }
-                    
-                    print(f"🧵 已向{optimal_workers}个线程分发{len(single_page_files)}个任务")
-                    print(f"💭 所有线程共享内存，但受Python GIL限制可能无法满载CPU")
-                
-                # 🎭 收集表演结果：等待所有任务完成
-                completed_count = 0
-                for future in as_completed(future_to_page):
-                    page_num = future_to_page[future]
-                    try:
-                        page_data = future.result()
-                        pages_data[page_num - 1] = page_data  # 页码从1开始，索引从0开始
-                        completed_count += 1
-                        print(f"✅ 页面 {page_num} 处理完成 ({completed_count}/{len(single_page_files)})")
-                    except Exception as e:
-                        # 🛡️ 容错处理：单页失败不影响其他页面
-                        print(f"❌ 页面 {page_num} 处理失败: {e}")
-                        # 创建空的页面数据作为fallback
-                        pages_data[page_num - 1] = PageData(
-                            page_number=page_num,
-                            raw_text=f"页面 {page_num} 处理失败: {str(e)}",
-                            images=[],
-                            tables=[]
-                        )
-                        completed_count += 1
+        while current_batch and retry_count <= max_retries:
+            if retry_count > 0:
+                print(f"🔄 第{retry_count}次重试，处理{len(current_batch)}个失败页面...")
+                if retry_count > 1:  # 第二次重试后增加延迟
+                    import time
+                    time.sleep(retry_delay)
+            
+            failed_pages = []  # 本轮失败的页面
+            
+            try:
+                # 🎪 开始并行处理的"马戏团表演"
+                with executor_class(max_workers=optimal_workers) as executor:
+                    # 📋 任务分发：把工作分配给不同的worker
+                    if self.use_process_pool:
+                        # 🏭 进程池模式：
+                        # 
+                        # ⚠️ 重要限制：进程之间不能直接共享对象！
+                        # - 不能传递 self（类实例）
+                        # - 必须使用独立的静态函数
+                        # - 所有参数都要能"序列化"（转换成二进制数据传输）
+                        # 
+                        # 💾 数据传输开销：
+                        # - 每个进程启动时都要传递config对象
+                        # - 进程间通信通过管道/共享内存
+                        # - 这就是为什么进程启动比线程慢的原因
                         
-        except Exception as e:
-            # 🚨 系统级错误：并行处理完全失败
-            print(f"❌ 并行处理执行器创建失败: {e}")
-            print(f"💡 可能原因：系统资源不足、权限问题、或进程池初始化失败")
-            # 回退到串行处理
-            print("🔄 回退到串行处理模式...")
-            return self._process_pages_sequential(single_page_files, output_dir)
+                        future_to_page = {
+                            executor.submit(
+                                _process_single_page_static,  # 📞 调用独立的静态函数
+                                page_num, 
+                                single_page_path, 
+                                output_dir,
+                                self.config  # 🚚 配置对象会被"打包"发送给子进程
+                            ): page_num
+                            for page_num, single_page_path in current_batch
+                        }
+                        
+                        print(f"🚀 已向{optimal_workers}个独立进程分发{len(current_batch)}个任务")
+                        print(f"💡 每个进程都是独立的Python解释器，可以充分利用CPU核心")
+                        
+                    else:
+                        # 🧵 线程池模式：
+                        # 
+                        # ✅ 便利性：可以直接调用类方法
+                        # - 所有线程共享同一个内存空间
+                        # - 可以直接访问 self 和所有实例变量
+                        # - 数据传递几乎没有开销
+                        # 
+                        # ⚠️ GIL限制：
+                        # - Python的全局解释器锁意味着同时只有一个线程在执行Python代码
+                        # - 对于纯CPU任务，多线程可能不会带来速度提升
+                        # - 但docling中有很多C扩展和I/O操作，这些可以释放GIL
+                        
+                        future_to_page = {
+                            executor.submit(
+                                self._process_single_page,  # 📞 直接调用实例方法
+                                page_num, 
+                                single_page_path, 
+                                output_dir
+                            ): page_num
+                            for page_num, single_page_path in current_batch
+                        }
+                        
+                        print(f"🧵 已向{optimal_workers}个线程分发{len(current_batch)}个任务")
+                        print(f"💭 所有线程共享内存，但受Python GIL限制可能无法满载CPU")
+                    
+                    # 🎭 收集表演结果：等待所有任务完成
+                    completed_count = 0
+                    for future in as_completed(future_to_page):
+                        page_num = future_to_page[future]
+                        try:
+                            page_data = future.result()
+                            # ✅ 检查页面数据质量
+                            if self._is_page_data_valid(page_data):
+                                pages_data[page_num - 1] = page_data  # 页码从1开始，索引从0开始
+                                completed_count += 1
+                                print(f"✅ 页面 {page_num} 处理完成 ({completed_count}/{len(current_batch)})")
+                            else:
+                                # 📝 记录质量检查失败的页面
+                                failed_pages.append((page_num, next(path for num, path in current_batch if num == page_num)))
+                                print(f"⚠️ 页面 {page_num} 质量检查失败，加入重试队列")
+                        except Exception as e:
+                            # 🛡️ 容错处理：单页失败加入重试队列
+                            print(f"❌ 页面 {page_num} 处理失败: {e}")
+                            failed_pages.append((page_num, next(path for num, path in current_batch if num == page_num)))
+                            
+            except Exception as e:
+                # 🚨 系统级错误：整个批次失败
+                print(f"❌ 并行处理批次失败: {e}")
+                print(f"💡 可能原因：系统资源不足、权限问题、或进程池初始化失败")
+                
+                # 如果是第一次尝试，回退到串行处理
+                if retry_count == 0:
+                    print("🔄 回退到串行处理模式...")
+                    return self._process_pages_sequential(single_page_files, output_dir)
+                else:
+                    # 重试时的系统级错误，标记所有当前页面为失败
+                    failed_pages.extend(current_batch)
+            
+            # 🔄 准备下一轮重试
+            current_batch = failed_pages
+            retry_count += 1
+            
+            if failed_pages:
+                if retry_count <= max_retries:
+                    print(f"📝 本轮有{len(failed_pages)}个页面失败，将在第{retry_count}轮重试")
+                else:
+                    print(f"❌ 达到最大重试次数({max_retries})，{len(failed_pages)}个页面最终失败")
+        
+        # 🚨 处理最终失败的页面
+        if current_batch:  # 仍有失败页面
+            print(f"⚠️ 最终失败页面: {[page_num for page_num, _ in current_batch]}")
+            for page_num, _ in current_batch:
+                if pages_data[page_num - 1] is None:
+                    # 创建空的失败页面数据
+                    pages_data[page_num - 1] = PageData(
+                        page_number=page_num,
+                        raw_text="",  # 空文本
+                        images=[],
+                        tables=[]
+                    )
+                    print(f"🔧 页面 {page_num} 标记为最终失败，使用空数据")
         
         # 🎯 最终整理：确保结果的完整性和顺序
         successful_pages: List[PageData] = [page for page in pages_data if page is not None]
         successful_pages.sort(key=lambda x: x.page_number)
         
-        print(f"📊 并行处理完成: {len(successful_pages)}/{len(single_page_files)} 页面成功处理")
+        total_pages = len(single_page_files)
+        success_count = len(successful_pages)
+        final_failed_count = len(current_batch) if current_batch else 0
+        
+        print(f"📊 并行处理完成统计:")
+        print(f"   ✅ 成功页面: {success_count}/{total_pages} ({success_count/total_pages*100:.1f}%)")
+        print(f"   ❌ 最终失败: {final_failed_count}/{total_pages} ({final_failed_count/total_pages*100:.1f}%)")
+        print(f"   🔄 总重试轮数: {retry_count-1}")
         
         # 📈 性能提示
-        if self.use_process_pool:
+        if self.use_process_pool and success_count > 0:
             theoretical_speedup = min(optimal_workers, len(single_page_files))
             print(f"🚀 理论加速比: {theoretical_speedup}x（实际可能因进程启动开销略低）")
         
         return successful_pages
+    
+    def _is_page_data_valid(self, page_data: PageData) -> bool:
+        """
+        检查页面数据质量
+        
+        Args:
+            page_data: 页面数据
+            
+        Returns:
+            bool: 是否为有效数据
+        """
+        if not page_data:
+            return False
+        
+        # 检查基本属性
+        if not hasattr(page_data, 'page_number') or page_data.page_number <= 0:
+            print(f"⚠️ 页面数据缺少有效页码")
+            return False
+        
+        # 检查文本内容（至少应该有一些内容，除非是纯图片页面）
+        has_text = page_data.raw_text and len(page_data.raw_text.strip()) > 0
+        has_media = (hasattr(page_data, 'images') and len(page_data.images) > 0) or \
+                   (hasattr(page_data, 'tables') and len(page_data.tables) > 0)
+        
+        # 至少要有文本或媒体内容
+        if not has_text and not has_media:
+            print(f"⚠️ 页面 {page_data.page_number} 既无文本也无媒体内容")
+            return False
+        
+        # 检查是否包含明显的错误信息
+        if has_text and ("处理失败" in page_data.raw_text or "connection" in page_data.raw_text.lower()):
+            print(f"⚠️ 页面 {page_data.page_number} 文本包含错误信息")
+            return False
+        
+        return True
     
     def _process_pages_sequential(self, 
                                  single_page_files: List[Tuple[int, str]], 
@@ -533,10 +657,10 @@ class Stage1DoclingProcessor:
                 print(f"✅ 页面 {page_num} 处理完成")
             except Exception as e:
                 print(f"❌ 页面 {page_num} 处理失败: {e}")
-                # 创建空的页面数据
+                # ✅ 修复：失败页面使用空文本，不保存错误信息
                 pages_data.append(PageData(
                     page_number=page_num,
-                    raw_text=f"页面 {page_num} 处理失败: {str(e)}",
+                    raw_text="",  # 空文本而不是错误信息
                     images=[],
                     tables=[]
                 ))
@@ -640,68 +764,126 @@ class Stage1DoclingProcessor:
                 return text[:300] + "..."
     
     def _extract_page_text(self, raw_result: Any) -> str:
-        """从单页PDF的docling结果中提取文本 - 多策略提取"""
+        """从单页PDF的docling结果中提取文本 - 增强多策略提取"""
         try:
             page_text = ""
+            extraction_methods = []
+            
+            # 🔍 预检查：打印文档结构信息
+            print(f"🔍 开始文本提取，Document类型: {type(raw_result.document)}")
+            if hasattr(raw_result.document, 'texts'):
+                print(f"🔍 texts集合长度: {len(raw_result.document.texts) if raw_result.document.texts else 0}")
             
             # 🎯 策略1：优先尝试export_to_text()方法（最直接的文本提取）
             if hasattr(raw_result.document, 'export_to_text'):
                 try:
                     page_text = raw_result.document.export_to_text()
                     if page_text and page_text.strip():
+                        extraction_methods.append("export_to_text")
                         print(f"✅ 使用export_to_text()成功提取文本: {len(page_text)}字符")
                         return page_text.strip()
+                    else:
+                        print(f"⚠️ export_to_text()返回空内容")
                 except Exception as e:
                     print(f"⚠️ export_to_text()方法失败: {e}")
+            else:
+                print(f"⚠️ document没有export_to_text()方法")
             
             # 🎯 策略2：直接遍历document.texts集合（推荐方法）
             if hasattr(raw_result.document, 'texts') and raw_result.document.texts:
                 try:
                     text_parts = []
-                    for text_item in raw_result.document.texts:
+                    for i, text_item in enumerate(raw_result.document.texts):
                         if hasattr(text_item, 'text') and text_item.text:
                             text_parts.append(text_item.text)
+                            print(f"📝 文本片段{i+1}: {len(text_item.text)}字符 - {text_item.text[:50]}...")
                     
                     if text_parts:
                         page_text = '\n'.join(text_parts)
+                        extraction_methods.append("texts_collection")
                         print(f"✅ 从texts集合提取文本: {len(text_parts)}个文本项, {len(page_text)}字符")
                         return page_text.strip()
+                    else:
+                        print(f"⚠️ texts集合中无有效文本内容")
                 except Exception as e:
                     print(f"⚠️ 遍历texts集合失败: {e}")
+            else:
+                print(f"⚠️ document没有texts集合或为空")
             
-            # 🎯 策略3：使用export_to_markdown()作为备选
+            # 🎯 策略3：尝试从各种可能的文本属性中提取
+            text_attributes = ['content', 'text_content', 'body', 'main_text']
+            for attr in text_attributes:
+                if hasattr(raw_result.document, attr):
+                    try:
+                        text_val = getattr(raw_result.document, attr)
+                        if text_val and str(text_val).strip():
+                            extraction_methods.append(f"attribute_{attr}")
+                            print(f"✅ 从{attr}属性提取文本: {len(str(text_val))}字符")
+                            return str(text_val).strip()
+                    except Exception as e:
+                        print(f"⚠️ 从{attr}属性提取失败: {e}")
+            
+            # 🎯 策略4：使用export_to_markdown()作为备选
             if hasattr(raw_result.document, 'export_to_markdown'):
                 try:
                     raw_markdown = raw_result.document.export_to_markdown()
-                    
-                    # 清理markdown内容
-                    import re
-                    markdown_clean_pattern = re.compile(r"<!--[\s\S]*?-->")
-                    cleaned_text = markdown_clean_pattern.sub("", raw_markdown)
-                    
-                    if cleaned_text and cleaned_text.strip():
-                        print(f"✅ 使用export_to_markdown()提取文本: {len(cleaned_text)}字符")
-                        return cleaned_text.strip()
+                    if raw_markdown and raw_markdown.strip():
+                        # 清理markdown内容
+                        import re
+                        markdown_clean_pattern = re.compile(r"<!--[\s\S]*?-->")
+                        cleaned_text = markdown_clean_pattern.sub("", raw_markdown)
+                        
+                        if cleaned_text and cleaned_text.strip():
+                            extraction_methods.append("export_to_markdown")
+                            print(f"✅ 使用export_to_markdown()提取文本: {len(cleaned_text)}字符")
+                            return cleaned_text.strip()
+                    else:
+                        print(f"⚠️ export_to_markdown()返回空内容")
                 except Exception as e:
                     print(f"⚠️ export_to_markdown()方法失败: {e}")
+            else:
+                print(f"⚠️ document没有export_to_markdown()方法")
             
-            # 🎯 策略4：尝试从document属性中直接提取
-            if hasattr(raw_result.document, 'text'):
+            # 🎯 策略5：尝试从页面级别提取（如果有pages）
+            if hasattr(raw_result.document, 'pages') and raw_result.document.pages:
                 try:
-                    doc_text = getattr(raw_result.document, 'text', None)
-                    if doc_text and doc_text.strip():
-                        print(f"✅ 从document.text属性提取文本: {len(doc_text)}字符")
-                        return doc_text.strip()
+                    page_texts = []
+                    for page in raw_result.document.pages:
+                        if hasattr(page, 'text') and page.text:
+                            page_texts.append(page.text)
+                    
+                    if page_texts:
+                        combined_text = '\n'.join(page_texts)
+                        extraction_methods.append("pages_text")
+                        print(f"✅ 从pages提取文本: {len(page_texts)}页, {len(combined_text)}字符")
+                        return combined_text.strip()
                 except Exception as e:
-                    print(f"⚠️ document.text属性访问失败: {e}")
+                    print(f"⚠️ 从pages提取文本失败: {e}")
             
-            # 🎯 策略5：最后的诊断信息
-            print("🔍 可用的document属性:", [attr for attr in dir(raw_result.document) if not attr.startswith('_')])
-            print("❌ 所有文本提取策略都失败，返回空字符串")
+            # 🎯 策略6：最后的诊断和兜底
+            all_attrs = [attr for attr in dir(raw_result.document) if not attr.startswith('_')]
+            text_like_attrs = [attr for attr in all_attrs if 'text' in attr.lower() or 'content' in attr.lower()]
+            
+            print("🔍 文档可用属性:", all_attrs[:10], "..." if len(all_attrs) > 10 else "")
+            print("🔍 疑似文本相关属性:", text_like_attrs)
+            
+            # 最后尝试：直接检查document的__dict__
+            if hasattr(raw_result.document, '__dict__'):
+                doc_dict = raw_result.document.__dict__
+                for key, value in doc_dict.items():
+                    if isinstance(value, str) and len(value) > 10:
+                        extraction_methods.append(f"dict_{key}")
+                        print(f"✅ 从__dict__[{key}]提取文本: {len(value)}字符")
+                        return value.strip()
+            
+            print(f"❌ 所有{len(extraction_methods) + 6}种文本提取策略都失败")
+            print(f"🔍 尝试过的方法: {extraction_methods}")
             return ""
             
         except Exception as e:
             print(f"❌ 页面文本提取过程发生异常: {e}")
+            import traceback
+            print(f"🔍 异常详情: {traceback.format_exc()}")
             return ""
     
     def _extract_media_for_single_page(self, 
@@ -829,6 +1011,10 @@ class Stage1DoclingProcessor:
         full_text_parts = []
         page_texts = {}  # 页码 -> 完整页面原始文本，用于精确的上下文提取
         
+        # 全局计数器，确保content_id唯一
+        img_counter = 1
+        table_counter = 1
+        
         for page in pages:
             page_num = page.page_number
             page_text = page.raw_text or ""
@@ -836,24 +1022,28 @@ class Stage1DoclingProcessor:
             # 保存原始页面文本（不含媒体标记，用于精确的上下文提取）
             page_texts[str(page_num)] = page_text
             
-            # 在页面文本中插入媒体标记
+            # 在页面文本中插入媒体标记 (使用content_id)
             text_with_markers = page_text
             
-            # 插入图片标记
+            # 插入图片标记 - 使用content_id而不是path
             for img in page.images:
-                img_marker = f"\n[IMAGE:{img.image_path}:CAPTION:{img.caption or 'No caption'}]\n"
-                text_with_markers += img_marker
+                img_marker = f"[IMAGE:{img_counter}]"  # 简化格式，只用ID
+                text_with_markers += f"\n{img_marker}\n"
+                img_counter += 1
             
-            # 插入表格标记
+            # 插入表格标记 - 使用content_id而不是path  
             for table in page.tables:
-                table_marker = f"\n[TABLE:{table.table_path}:CAPTION:{table.caption or 'No caption'}]\n"
-                text_with_markers += table_marker
+                table_marker = f"[TABLE:{table_counter}]"  # 简化格式，只用ID
+                text_with_markers += f"\n{table_marker}\n"
+                table_counter += 1
             
-            full_text_parts.append(f"=== Page {page_num} ===\n{text_with_markers}\n")
+            # 直接添加页面文本，不添加页面标记噪音
+            full_text_parts.append(text_with_markers)
         
-        full_raw_text = "\n".join(full_text_parts)
+        # 用空行分隔页面，避免页面标记噪音
+        full_raw_text = "\n\n".join(full_text_parts)
         
-        print(f"📄 生成full_raw_text: {len(full_raw_text)} 字符")
+        print(f"📄 生成full_raw_text: {len(full_raw_text)} 字符 (无页面噪音)")
         print(f"📄 保存page_texts: {len(page_texts)} 页")
         return full_raw_text, page_texts
     
@@ -881,12 +1071,12 @@ class Stage1DoclingProcessor:
         total_tables = sum(len(page.tables) for page in pages)
         total_pages = len(pages)
         
-        # 填充DocumentSummaryChunk
+        # 填充DocumentSummary
         doc_id = final_schema.document_id
-        final_schema.document_summary = DocumentSummaryChunk(
+        final_schema.document_summary = DocumentSummary(
             content_id=f"{doc_id}_document_summary_1",
             document_id=doc_id,
-            content=full_raw_text,  # 🌟 关键：保存full_raw_text
+            full_raw_text=full_raw_text,  # 🌟 关键：保存full_raw_text
             page_texts=page_texts,  # 🌟 新增：保存每页的完整原始文本
             source_file_path=pdf_path,
             file_name=os.path.basename(pdf_path),
@@ -1003,6 +1193,11 @@ def _process_single_page_static(page_num: int,
         PageData: 页面数据
     """
     try:
+        # 🔧 配置离线模式，避免网络连接问题（子进程）
+        import os
+        os.environ['HF_HUB_OFFLINE'] = '1'  # 强制HuggingFace Hub离线模式
+        os.environ['TRANSFORMERS_OFFLINE'] = '1'  # Transformers离线模式
+        
         # 在进程内初始化docling转换器
         from docling.datamodel.base_models import InputFormat
         from docling.datamodel.pipeline_options import PdfPipelineOptions, EasyOcrOptions
@@ -1018,21 +1213,41 @@ def _process_single_page_static(page_num: int,
         
         # 创建管道选项
         if config.docling.ocr_enabled:
-            # 🔥 直接设置OCR配置，核心设置：force_full_page_ocr = True
+            # 🔥 增强OCR配置，确保文字提取成功
             ocr_options = EasyOcrOptions()
-            
-            # 应用关键的OCR设置
             try:
+                # 核心OCR设置
                 ocr_options.force_full_page_ocr = True  # 强制全页OCR
-                print(f"✅ 进程 {page_num}: 应用关键OCR设置 (force_full_page_ocr=True)")
+                
+                # 🚀 添加更多OCR优化设置（只使用实际存在的属性）
+                if hasattr(ocr_options, 'use_gpu'):
+                    ocr_options.use_gpu = False  # 强制使用CPU，避免GPU兼容性问题
+                
+                if hasattr(ocr_options, 'lang'):
+                    ocr_options.lang = ['ch_sim', 'en']  # 支持中英文
+                
+                if hasattr(ocr_options, 'confidence_threshold'):
+                    ocr_options.confidence_threshold = 0.3  # 降低置信度阈值，提高检出率
+                
+                if hasattr(ocr_options, 'bitmap_area_threshold'):
+                    ocr_options.bitmap_area_threshold = 0.01  # 降低区域阈值，检测更小文字
+                
+                print("✅ 应用增强OCR设置：")
+                print("   - force_full_page_ocr=True（强制全页OCR）")
+                print("   - use_gpu=False（CPU模式，避免兼容性问题）")
+                print("   - lang=['ch_sim', 'en']（中英文支持）")
+                print("   - confidence_threshold=0.3（降低置信度阈值）")
+                print("   - bitmap_area_threshold=0.01（检测更小文字）")
+                
             except Exception as e:
-                print(f"⚠️ 进程 {page_num}: 应用关键OCR设置失败: {e}")
+                print(f"⚠️ 应用增强OCR设置失败: {e}")
             
             pipeline_options = PdfPipelineOptions(
                 ocr_options=ocr_options,
                 artifacts_path=artifacts_path
             )
         else:
+            print("⚠️ OCR已禁用，可能导致文字提取不完整")
             pipeline_options = PdfPipelineOptions(
                 artifacts_path=artifacts_path
             )
@@ -1041,6 +1256,13 @@ def _process_single_page_static(page_num: int,
         pipeline_options.images_scale = config.docling.images_scale
         pipeline_options.generate_page_images = config.docling.generate_page_images
         pipeline_options.generate_picture_images = config.docling.generate_picture_images
+        
+        # 🚀 添加更多解析选项
+        if hasattr(pipeline_options, 'do_ocr'):
+            pipeline_options.do_ocr = True  # 确保OCR执行
+        
+        if hasattr(pipeline_options, 'do_table_structure'):
+            pipeline_options.do_table_structure = True  # 表格结构识别
         
         # 创建文档转换器
         doc_converter = DocumentConverter(
@@ -1203,10 +1425,10 @@ def _process_single_page_static(page_num: int,
         
     except Exception as e:
         print(f"❌ 静态函数处理页面 {page_num} 失败: {e}")
-        # 返回失败的页面数据
+        # ✅ 修复：失败页面使用空文本，不保存错误信息
         return PageData(
             page_number=page_num,
-            raw_text=f"页面 {page_num} 处理失败: {str(e)}",
+            raw_text="",  # 空文本而不是错误信息
             images=[],
             tables=[]
         ) 
