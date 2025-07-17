@@ -26,8 +26,8 @@ def test_stage2_complete():
     """测试Stage2的完整处理流程"""
     print("🎯 测试Stage2完整处理功能...")
     
-    # 测试路径
-    metadata_path = "parser_output_v2/test_stage1_20250716_110158/final_metadata.json"
+    # 测试路径 - 使用修复后的文件
+    metadata_path = "parser_output_v2/test_stage1_20250716_160724/final_metadata_fixed.json"
     
     if not os.path.exists(metadata_path):
         print(f"❌ 找不到测试文件: {metadata_path}")
@@ -138,7 +138,7 @@ def test_step_by_step():
     """分步测试各个Stage2步骤"""
     print("\n🔍 分步测试Stage2各个步骤...")
     
-    metadata_path = "parser_output_v2/test_stage1_20250716_110158/final_metadata.json"
+    metadata_path = "parser_output_v2/test_stage1_20250716_160724/final_metadata_fixed.json"
     
     if not os.path.exists(metadata_path):
         print(f"❌ 找不到测试文件: {metadata_path}")

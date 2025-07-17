@@ -20,11 +20,11 @@ import time
 import json
 import asyncio
 import threading
+import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .final_schema import FinalMetadataSchema
 
@@ -90,7 +90,7 @@ class Stage2IntelligentProcessor:
 
 图片上下文：{page_context}
 
-请按以下JSON格式输出：
+请按以下JSON格式输出（直接返回JSON，不要用markdown代码块包装）：
 {{
   "search_summary": "简述 - 15字以内的关键词描述，突出图片类型和核心内容",
   "detailed_description": "详细描述图片的具体内容、布局、文字等元素",
@@ -101,7 +101,25 @@ class Stage2IntelligentProcessor:
 - search_summary要精炼，适合搜索匹配
 - detailed_description要完整准确
 - engineering_details仅针对技术图纸，普通图片返回null
-- 输出必须是有效的JSON格式"""
+- 输出必须是有效的JSON格式，直接返回JSON对象，不要用```json```包装"""
+
+        # 表格描述prompt - 结构化输出
+        self.table_description_prompt = """请分析这张表格并以JSON格式输出结构化描述。
+
+表格上下文：{page_context}
+
+请按以下JSON格式输出（直接返回JSON，不要用markdown代码块包装）：
+{{
+  "search_summary": "简述 - 15字以内的关键词描述，突出表格类型和核心内容",
+  "detailed_description": "详细描述表格的具体内容、布局、文字等元素",
+  "engineering_details": "如果是技术图表、设计图或工程图，请描述关键技术信息、尺寸、规格等专业细节；如果不是技术图表，则返回null"
+}}
+
+要求：
+- search_summary要精炼，适合搜索匹配
+- detailed_description要完整准确
+- engineering_details仅针对技术图表，普通表格返回null
+- 输出必须是有效的JSON格式，直接返回JSON对象，不要用```json```包装"""
 
         # 处理统计
         self.stats = {
@@ -167,7 +185,7 @@ class Stage2IntelligentProcessor:
 
 图片上下文：{page_context}
 
-请按以下JSON格式输出：
+请按以下JSON格式输出（直接返回JSON，不要用markdown代码块包装）：
 {{
   "search_summary": "简述 - 15字以内的关键词描述，突出图片类型和核心内容",
   "detailed_description": "详细描述图片的具体内容、布局、文字等元素",
@@ -178,7 +196,25 @@ class Stage2IntelligentProcessor:
 - search_summary要精炼，适合搜索匹配
 - detailed_description要完整准确
 - engineering_details仅针对技术图纸，普通图片返回null
-- 输出必须是有效的JSON格式"""
+- 输出必须是有效的JSON格式，直接返回JSON对象，不要用```json```包装"""
+
+        # 表格描述prompt - 结构化输出
+        self.table_description_prompt = """请分析这张表格并以JSON格式输出结构化描述。
+
+表格上下文：{page_context}
+
+请按以下JSON格式输出（直接返回JSON，不要用markdown代码块包装）：
+{{
+  "search_summary": "简述 - 15字以内的关键词描述，突出表格类型和核心内容",
+  "detailed_description": "详细描述表格的具体内容、布局、文字等元素",
+  "engineering_details": "如果是技术图表、设计图或工程图，请描述关键技术信息、尺寸、规格等专业细节；如果不是技术图表，则返回null"
+}}
+
+要求：
+- search_summary要精炼，适合搜索匹配
+- detailed_description要完整准确
+- engineering_details仅针对技术图表，普通表格返回null
+- 输出必须是有效的JSON格式，直接返回JSON对象，不要用```json```包装"""
 
     def process(self, input_path: str, output_dir: Optional[str] = None) -> str:
         """
@@ -1120,15 +1156,38 @@ class Stage2IntelligentProcessor:
             if not response:
                 return None
             
-            # 尝试解析JSON响应
+            # 尝试解析JSON响应（处理markdown包装的情况）
             try:
                 import json
+                import re
+                
+                # 先尝试直接解析
                 result = json.loads(response)
                 return result
             except json.JSONDecodeError:
-                # 如果不是标准JSON，尝试提取关键信息
-                print(f"⚠️  AI返回非JSON格式，尝试解析: {response[:100]}...")
-                # 简单fallback：把整个响应作为detailed_description
+                # 如果直接解析失败，尝试从markdown中提取JSON
+                # 查找 ```json ... ``` 或 ``` ... ``` 格式
+                json_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1).strip()
+                    try:
+                        result = json.loads(json_str)
+                        return result
+                    except json.JSONDecodeError:
+                        pass
+                
+                # 如果仍然失败，查找第一个 { 到最后一个 } 之间的内容
+                brace_match = re.search(r'\{.*\}', response, re.DOTALL)
+                if brace_match:
+                    json_str = brace_match.group(0)
+                    try:
+                        result = json.loads(json_str)
+                        return result
+                    except json.JSONDecodeError:
+                        pass
+                
+                # 最后的fallback：把整个响应作为detailed_description
+                print(f"⚠️  AI返回非JSON格式，使用fallback处理: {response[:100]}...")
                 return {
                     "search_summary": "AI生成的图片描述",
                     "detailed_description": response,
@@ -1141,9 +1200,109 @@ class Stage2IntelligentProcessor:
     
     def _parallel_process_tables(self, table_tasks: List):
         """并行处理表格描述生成（类似图片处理）"""
-        # 暂时简化，后续可以扩展
-        print("ℹ️  表格描述生成功能待实现")
-        pass
+        if not table_tasks:
+            print("📋 无表格需要处理")
+            return
+        
+        print(f"📋 开始处理 {len(table_tasks)} 个表格...")
+        
+        def process_single_table(table_chunk):
+            """处理单个表格的描述生成"""
+            try:
+                # 调用AI生成结构化描述
+                result = self._generate_structured_table_description(table_chunk)
+                return table_chunk, result, None
+            except Exception as e:
+                return table_chunk, None, str(e)
+        
+        # 使用线程池并行处理（AI调用是IO密集型）
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [executor.submit(process_single_table, table) for table in table_tasks]
+            
+            for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                table_chunk, result, error = future.result()
+                
+                if error:
+                    print(f"⚠️  表格 {table_chunk.content_id} 处理失败: {error}")
+                elif result:
+                    # 更新结构化描述字段
+                    table_chunk.search_summary = result.get('search_summary')
+                    table_chunk.detailed_description = result.get('detailed_description') 
+                    table_chunk.engineering_details = result.get('engineering_details')
+                    print(f"✅ 表格 {i+1}/{len(table_tasks)} 处理完成")
+
+    def _generate_structured_table_description(self, table_chunk) -> Optional[Dict[str, Any]]:
+        """为单个表格生成结构化描述"""
+        if not self.ai_clients.get('openrouter'):
+            return None
+        
+        try:
+            # 构建prompt
+            prompt = self.table_description_prompt.format(
+                page_context=table_chunk.page_context or "无上下文信息"
+            )
+            
+            # 调用AI生成描述（包含表格图片）
+            client = self.ai_clients['openrouter']
+            
+            # 构建表格图片路径
+            table_path = Path(table_chunk.table_path)
+            if not table_path.is_absolute():
+                # 相对路径，需要从项目根目录解析
+                project_root = Path(__file__).parent.parent.parent
+                table_path = project_root / table_path
+            
+            if not table_path.exists():
+                print(f"⚠️  表格文件不存在: {table_path}")
+                return None
+            
+            # 调用OpenRouter客户端生成描述
+            response = client.get_image_description_gemini(str(table_path), prompt)
+            
+            if not response:
+                return None
+            
+            # 尝试解析JSON响应（处理markdown包装的情况）
+            try:
+                import json
+                import re
+                
+                # 先尝试直接解析
+                result = json.loads(response)
+                return result
+            except json.JSONDecodeError:
+                # 如果直接解析失败，尝试从markdown中提取JSON
+                # 查找 ```json ... ``` 或 ``` ... ``` 格式
+                json_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1).strip()
+                    try:
+                        result = json.loads(json_str)
+                        return result
+                    except json.JSONDecodeError:
+                        pass
+                
+                # 如果仍然失败，查找第一个 { 到最后一个 } 之间的内容
+                brace_match = re.search(r'\{.*\}', response, re.DOTALL)
+                if brace_match:
+                    json_str = brace_match.group(0)
+                    try:
+                        result = json.loads(json_str)
+                        return result
+                    except json.JSONDecodeError:
+                        pass
+                
+                # 最后的fallback：把整个响应作为detailed_description
+                print(f"⚠️  AI返回非JSON格式，使用fallback处理: {response[:100]}...")
+                return {
+                    "search_summary": "AI生成的表格描述",
+                    "detailed_description": response,
+                    "engineering_details": None
+                }
+        
+        except Exception as e:
+            print(f"⚠️  表格描述生成失败: {str(e)}")
+            return None
 
     def _load_stage1_data(self, input_path: str) -> FinalMetadataSchema:
         """加载Stage1处理的数据"""

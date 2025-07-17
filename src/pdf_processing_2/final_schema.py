@@ -191,7 +191,6 @@ class TextChunk:
     
     # 元信息
     chapter_id: Optional[str] = ""
-    page_number: Optional[int] = None
     chunk_index: int = 0
     word_count: int = 0
     
@@ -208,7 +207,6 @@ class ChapterSummary:
     # 章节信息
     chapter_id: str = ""
     chapter_title: str = ""
-    page_range: Optional[str] = None
     
     # 原始和处理后的内容
     raw_content: Optional[str] = None       # 章节原始文本
@@ -395,7 +393,6 @@ class FinalMetadataSchema:
                 document_id=text_data["document_id"],
                 content=text_data["content"],
                 chapter_id=text_data.get("chapter_id", ""),
-                page_number=text_data.get("page_number"),
                 chunk_index=text_data.get("chunk_index", 0),
                 word_count=text_data.get("word_count", 0),
                 created_at=text_data.get("created_at")
@@ -411,7 +408,6 @@ class FinalMetadataSchema:
                 ai_summary=chapter_data.get("ai_summary"),
                 chapter_id=chapter_data.get("chapter_id", ""),
                 chapter_title=chapter_data.get("chapter_title", ""),
-                page_range=chapter_data.get("page_range"),
                 word_count=chapter_data.get("word_count", 0),
                 created_at=chapter_data.get("created_at")
             )
