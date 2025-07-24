@@ -1,291 +1,345 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RAG检索工具系统 - 主启动脚本
-React Agent：可视化思考模式（两个核心工具）
-- 模版搜索工具：支持三轮放宽策略
-- 章节内容搜索工具：支持三步融合搜索
+独立工具交互式测试主程序
+让用户选择使用模版搜索或文档搜索工具
 """
 
-import sys
 import os
+import sys
 import json
-import sqlite3
-import shutil
 import logging
-from datetime import datetime
 from pathlib import Path
+from datetime import datetime
 from dotenv import load_dotenv
 
 # 加载环境变量
-load_dotenv()
-
-# 确保日志目录存在
-os.makedirs('logs', exist_ok=True)
-
-# 配置日志 - 移除时间戳，专注于AI思考过程
-log_level = os.getenv("LOG_LEVEL", "INFO")
-logging.basicConfig(
-    level=getattr(logging, log_level.upper()),
-    format='%(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/system.log'),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-
-logger = logging.getLogger(__name__)
+env_path = Path(__file__).parent / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
+else:
+    load_dotenv()
 
 # 添加项目根目录到Python路径
 sys.path.append(str(Path(__file__).parent))
 
+# 配置简单日志
+logging.basicConfig(level=logging.WARNING)
+
 def setup_environment():
-    """设置环境"""
-    # 从环境变量获取目录配置
-    storage_dir = os.getenv("RAG_STORAGE_DIR", "pdf_embedding_storage")
-    
-    # 创建必要的目录
+    """设置运行环境"""
+    storage_dir = os.getenv("RAG_STORAGE_DIR", "final_chromadb")
     os.makedirs(storage_dir, exist_ok=True)
-    os.makedirs("logs", exist_ok=True)
-    
-    # 设置环境变量（如果需要）
     os.environ.setdefault("PYTHONPATH", ".")
-    
-    # 检查必要的环境变量
-    # 检查DeepSeek API密钥（用于对话）
-    deepseek_key = os.getenv("DEEPSEEK_API_KEY")
-    if not deepseek_key:
-        logger.error("缺少DeepSeek API密钥")
-        print("❌ 缺少DeepSeek API密钥，请在环境变量中设置 DEEPSEEK_API_KEY")
-        sys.exit(1)
-    
-    # 检查Qwen API密钥（用于embedding）
-    qwen_key = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
-    if not qwen_key:
-        logger.error("缺少Qwen API密钥")
-        print("❌ 缺少Qwen API密钥，请在环境变量中设置 QWEN_API_KEY 或 DASHSCOPE_API_KEY")
-        sys.exit(1)
-    
-    print("✅ 环境变量检查完成：DeepSeek用于对话，Qwen用于embedding")
-    
-    logger.info("环境设置完成")
+    print("✅ 环境设置完成")
 
-try:
-    from react_rag_agent import SimplifiedReactAgent
-    print("✅ React Agent组件导入成功")
-except ImportError as e:
-    print(f"❌ 组件导入失败: {e}")
-    sys.exit(1)
+def show_welcome():
+    """显示欢迎信息"""
+    print("\n" + "="*60)
+    print("🔍 独立工具交互式测试系统")
+    print("="*60)
+    print("💡 功能说明:")
+    print("   1️⃣ 模版搜索工具 - ElasticSearch搜索模版内容")
+    print("   2️⃣ 文档搜索工具 - 向量搜索文档内容(文本+图片+表格)")
+    print("   0️⃣ 退出系统")
+    print("="*60)
 
-class SimpleRAGSystem:
-    """简化的RAG检索系统 - React Agent"""
-    
-    def __init__(self):
-        self.react_agent = None
-        self.init_components()
-    
-    def init_components(self):
-        """初始化系统组件"""
-        try:
-            print("🔧 正在初始化智能检索系统...")
-            
-            # 获取存储目录配置
-            storage_dir = os.getenv("RAG_STORAGE_DIR", "pdf_embedding_storage")
-            
-            # 初始化React Agent（简化工具系统）
-            print("🤖 初始化React Agent (简化工具系统)...")
-            self.react_agent = SimplifiedReactAgent(storage_dir=storage_dir)
-            print("✅ React Agent初始化成功")
-            
-            print("🎉 系统初始化完成！")
-        except Exception as e:
-            print(f"❌ 系统初始化失败: {e}")
-            print(f"错误详情: {e}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
-    
-    def show_welcome(self):
-        """显示欢迎信息"""
-        print("\n" + "="*60)
-        print("🤖 智能文档检索系统 - React Agent")
-        print("="*60)
-        print("💡 系统特性:")
-        print("   🔍 React Agent - 优化版可视化思考 (3步循环)")
-        print("   🚀 Qwen API - 高性能语言模型")
-        print("   🛠️ 简化工具系统 - 两个核心工具")
-        print("   📈 三轮放宽策略 - 模版搜索智能降级")
-        print("   🔄 三步融合搜索 - 元数据+向量+BM25")
-        print("   🧠 自动决策 - AI智能选择搜索策略")
-        print("="*60)
-    
-    def show_agent_info(self):
-        """显示Agent信息"""
-        print("\n🎯 React Agent - 可视化思考模式:")
-        print("="*40)
-        print("   ✨ 特点：能看到AI每一步的思考过程")
-        print("   🎯 适用：演示、学习、调试")
-        print("   🛠️ 工具：两个核心工具（模版搜索+章节内容搜索）")
-        print("   📊 策略：三轮放宽 + 三步融合")
-        print("-"*40)
-    
-    def collect_queries_for_react(self):
-        """为React Agent收集单个查询"""
-        print("\n📝 React Agent - 单查询模式:")
-        print("💡 建议查询示例:")
-        print("   • 医灵古庙评估报告")
-        print("   • 古庙修缮方案模板")
-        print("   • 文物保护技术标准")
-        print("   • 古庙历史背景资料")
-        print("   • 建筑文化价值分析")
-        print("-"*50)
+def get_user_choice():
+    """获取用户选择"""
+    while True:
+        print("\n🎯 请选择工具:")
+        print("  [1] 模版搜索 (Template Search)")
+        print("  [2] 文档搜索 (Document Search)")
+        print("  [0] 退出")
         
-        while True:
-            query = input("\n🔍 请输入您的查询: ").strip()
-            
-            if query.lower() == 'quit':
-                print("👋 再见！")
-                sys.exit(0)
-            
-            if query:
-                print(f"✅ 查询已记录: {query}")
-                return query
-            else:
-                print("❌ 请输入有效的查询内容")
-    
-
-    
-    def process_react_query(self, query):
-        """使用React Agent处理单个查询"""
-        print(f"\n🚀 React Agent开始处理查询...")
-        print("="*60)
+        choice = input("\n👉 请输入选择 (0/1/2): ").strip()
         
-        try:
-            # 使用React Agent处理查询
-            result_json = self.react_agent.process_query(query)
-            result_data = json.loads(result_json)
-            
-            # 显示React思考过程
-            self.display_react_process(result_data)
-            
-            # 保存结果
-            self.save_react_results(query, result_data)
-            
-            return True
-            
-        except Exception as e:
-            print(f"❌ React Agent处理失败: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-    
-
-    
-    def display_react_process(self, result_data):
-        """显示React Agent的思考过程"""
-        print("\n🤔 React Agent思考过程:")
-        print("="*50)
-        
-        if result_data.get("status") == "success":
-            react_process = result_data.get("react_process", {})
-            steps = react_process.get("steps", [])
-            
-            for step in steps:
-                step_num = step.get("step_number")
-                thought = step.get("thought", "")
-                action = step.get("action", "")
-                observation = step.get("observation", "")
-                
-                print(f"\n🔄 步骤 {step_num}:")
-                print(f"   💭 思考: {thought}")
-                print(f"   🎯 行动: {action}")
-                print(f"   👀 观察: {observation[:200]}...")
-            
-            print(f"\n✅ 最终答案:")
-            print("-"*30)
-            final_answer = result_data.get("final_answer", "")
-            print(final_answer)
-            
+        if choice in ['0', '1', '2']:
+            return choice
         else:
-            print(f"❌ React处理失败: {result_data.get('error', '未知错误')}")
-    
+            print("❌ 无效选择，请输入 0、1 或 2")
 
-    
-    def save_react_results(self, query, result_data):
-        """保存React Agent结果"""
-        try:
-            # 准备保存数据
-            save_data = {
-                "agent_type": "react",
+def get_query():
+    """获取用户查询"""
+    while True:
+        query = input("\n📝 请输入查询内容: ").strip()
+        if query:
+            return query
+        else:
+            print("❌ 查询内容不能为空，请重新输入")
+
+def save_search_results(query, project_name, top_k, content_type, result_json):
+    """保存文档搜索结果到results目录"""
+    try:
+        # 确保results目录存在
+        results_dir = "results"
+        os.makedirs(results_dir, exist_ok=True)
+        
+        # 生成文件名 (时间戳 + 查询关键词)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # 清理查询字符串用于文件名
+        safe_query = "".join(c for c in query if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_query = safe_query.replace(' ', '_')[:20]  # 限制长度
+        filename = f"document_search_{timestamp}_{safe_query}.json"
+        filepath = os.path.join(results_dir, filename)
+        
+        # 构建完整的搜索记录
+        search_record = {
+            "search_type": "document_search",
+            "search_info": {
                 "timestamp": datetime.now().isoformat(),
                 "query": query,
-                "status": result_data.get("status"),
-                "execution_time": result_data.get("execution_time"),
-                "react_process": result_data.get("react_process"),
-                "final_answer": result_data.get("final_answer"),
-                "metadata": result_data.get("metadata")
-            }
-            
-            # 保存到文件
-            os.makedirs('results', exist_ok=True)
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"results/react_agent_result_{timestamp}.json"
-            
-            with open(filename, "w", encoding="utf-8") as f:
-                json.dump(save_data, f, ensure_ascii=False, indent=2)
-            
-            print(f"\n💾 React结果已保存到: {filename}")
-            
-        except Exception as e:
-            print(f"⚠️ 保存React结果失败: {e}")
-    
-
-    
-    def run(self):
-        """运行系统主循环"""
-        self.show_welcome()
+                "project_name": project_name,
+                "top_k": top_k,
+                "content_type": content_type
+            },
+            "results": json.loads(result_json)
+        }
         
-        while True:
-            print("\n" + "-"*60)
-            print("🔍 开始新一轮查询")
+        # 保存到文件
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(search_record, f, ensure_ascii=False, indent=2)
+        
+        return filepath
+        
+    except Exception as e:
+        print(f"⚠️ 保存文件时出错: {e}")
+        return None
+
+def save_template_results(query, template_content):
+    """保存模版搜索结果到results目录"""
+    try:
+        # 确保results目录存在
+        results_dir = "results"
+        os.makedirs(results_dir, exist_ok=True)
+        
+        # 生成文件名 (时间戳 + 查询关键词)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # 清理查询字符串用于文件名
+        safe_query = "".join(c for c in query if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_query = safe_query.replace(' ', '_')[:20]  # 限制长度
+        filename = f"template_search_{timestamp}_{safe_query}.json"
+        filepath = os.path.join(results_dir, filename)
+        
+        # 构建完整的搜索记录
+        search_record = {
+            "search_type": "template_search",
+            "search_info": {
+                "timestamp": datetime.now().isoformat(),
+                "query": query
+            },
+            "results": {
+                "status": "success" if template_content else "no_results",
+                "template_content": template_content,
+                "content_length": len(template_content) if template_content else 0
+            }
+        }
+        
+        # 保存到文件
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(search_record, f, ensure_ascii=False, indent=2)
+        
+        return filepath
+        
+    except Exception as e:
+        print(f"⚠️ 保存文件时出错: {e}")
+        return None
+
+def test_template_search():
+    """测试模版搜索工具"""
+    print("\n" + "🔍 模版搜索工具测试")
+    print("-" * 40)
+    
+    try:
+        # 导入和初始化工具
+        from template_search_tool import TemplateSearchTool
+        print("🔧 正在初始化模版搜索工具...")
+        tool = TemplateSearchTool()
+        print("✅ 模版搜索工具初始化成功")
+        
+        # 获取用户查询
+        query = get_query()
+        print(f"\n🚀 开始搜索: {query}")
+        
+        # 执行搜索
+        result = tool.search_templates(query)
+        
+        # 显示结果
+        print("\n📋 搜索结果:")
+        print("-" * 40)
+        if result:
+            print(f"✅ 找到模版内容 (长度: {len(result)}字符)")
+            print("\n📄 模版内容:")
+            print(result)
             
-            # 显示Agent信息
-            self.show_agent_info()
-            
-            # React Agent模式：单查询处理
-            query = self.collect_queries_for_react()
-            success = self.process_react_query(query)
-            
-            if success:
-                print(f"\n✨ React Agent处理完成！")
+            # 自动保存结果到文件
+            print(f"\n💾 正在保存模版搜索结果到results目录...")
+            saved_file = save_template_results(query, result)
+            if saved_file:
+                print(f"✅ 模版结果已保存到: {saved_file}")
             else:
-                print(f"\n❌ React Agent处理失败")
+                print("❌ 保存失败")
+        else:
+            print("❌ 未找到相关模版")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ 模版搜索失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def test_document_search():
+    """测试文档搜索工具"""
+    print("\n" + "🔍 文档搜索工具测试")
+    print("-" * 40)
+    
+    try:
+        # 导入和初始化工具
+        from document_search_tool import DocumentSearchTool
+        print("🔧 正在初始化文档搜索工具...")
+        storage_dir = os.getenv("RAG_STORAGE_DIR", "final_chromadb")
+        tool = DocumentSearchTool(storage_dir=storage_dir)
+        print("✅ 文档搜索工具初始化成功")
+        
+        # 获取用户查询
+        query = get_query()
+        
+        # 使用默认参数
+        project_name = "医灵古庙"  # 默认项目名称
+        top_k = 5               # 默认返回结果数量
+        content_type = "all"    # 默认搜索所有类型
+        
+        print(f"\n⚙️ 使用默认搜索参数:")
+        print(f"📁 项目名称: {project_name}")
+        print(f"📊 返回数量: {top_k}")
+        print(f"🎯 内容类型: {content_type}")
+        
+        print(f"\n🚀 开始搜索: {query}")
+        print(f"📁 项目: {project_name}")
+        print(f"📊 数量: {top_k}")
+        print(f"🎯 类型: {content_type}")
+        
+        # 执行搜索
+        result_json = tool.search_documents(
+            query_text=query,
+            project_name=project_name,
+            top_k=top_k,
+            content_type=content_type
+        )
+        
+        # 解析和显示结果
+        result = json.loads(result_json)
+        status = result.get("status", "unknown")
+        
+        print("\n📋 搜索结果:")
+        print("-" * 40)
+        
+        if status == "success":
+            text_results = result.get("retrieved_text", [])
+            image_results = result.get("retrieved_image", [])
+            table_results = result.get("retrieved_table", [])
+            
+            print(f"✅ 搜索成功!")
+            print(f"📝 文本内容: {len(text_results)}个")
+            print(f"🖼️ 图片内容: {len(image_results)}个")
+            print(f"📊 表格内容: {len(table_results)}个")
+            
+            # 显示文本结果预览
+            if text_results:
+                print(f"\n📝 文本内容预览:")
+                for i, text_item in enumerate(text_results[:3], 1):
+                    content = text_item.get("content", "")
+                    chapter_title = text_item.get("chapter_title", "")
+                    print(f"  {i}. {chapter_title}: {content[:100]}...")
+            
+            # 显示图片结果预览
+            if image_results:
+                print(f"\n🖼️ 图片内容预览:")
+                for i, image_item in enumerate(image_results[:3], 1):
+                    caption = image_item.get("caption", "")
+                    image_url = image_item.get("image_url", "")
+                    print(f"  {i}. {caption}: {image_url}")
+            
+            # 显示表格结果预览
+            if table_results:
+                print(f"\n📊 表格内容预览:")
+                for i, table_item in enumerate(table_results[:3], 1):
+                    caption = table_item.get("caption", "")
+                    table_url = table_item.get("table_url", "")
+                    print(f"  {i}. {caption}: {table_url}")
+            
+            # 自动保存结果到文件
+            print(f"\n💾 正在保存搜索结果到results目录...")
+            saved_file = save_search_results(query, project_name, top_k, content_type, result_json)
+            if saved_file:
+                print(f"✅ 结果已保存到: {saved_file}")
+            else:
+                print("❌ 保存失败")
+            
+            # 完整JSON结果已保存到文件，不在控制台显示
+            print(f"\n📄 完整JSON结果已保存到文件中")
+        
+        else:
+            print(f"❌ 搜索失败: {status}")
+            message = result.get("message", "未知错误")
+            print(f"错误信息: {message}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ 文档搜索失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def main():
+    """主程序"""
+    try:
+        # 设置环境
+        setup_environment()
+        
+        # 显示欢迎信息
+        show_welcome()
+        
+        # 主循环
+        while True:
+            choice = get_user_choice()
+            
+            if choice == '0':
+                print("\n👋 感谢使用，再见！")
+                break
+            
+            elif choice == '1':
+                print("\n" + "="*60)
+                success = test_template_search()
+                if success:
+                    print("\n✅ 模版搜索测试完成")
+                else:
+                    print("\n❌ 模版搜索测试失败")
+            
+            elif choice == '2':
+                print("\n" + "="*60)
+                success = test_document_search()
+                if success:
+                    print("\n✅ 文档搜索测试完成")
+                else:
+                    print("\n❌ 文档搜索测试失败")
             
             # 询问是否继续
             print("\n" + "-"*60)
-            while True:
-                continue_choice = input("🔄 是否继续进行新的查询？(y/n): ").strip().lower()
-                if continue_choice in ['y', 'yes', '是', '继续']:
-                    break
-                elif continue_choice in ['n', 'no', '否', '退出']:
-                    print("👋 感谢使用智能检索系统，再见！")
-                    return
-                else:
-                    print("❌ 请输入 y/yes 继续，或 n/no 退出")
-
-def main():
-    """主程序入口"""
-    setup_environment()
+            continue_choice = input("🔄 是否继续测试其他功能? (y/n): ").strip().lower()
+            if continue_choice not in ['y', 'yes', '是', '继续']:
+                print("\n👋 感谢使用，再见！")
+                break
     
-    try:
-        system = SimpleRAGSystem()
-        system.run()
     except KeyboardInterrupt:
-        print("\n\n👋 用户中断，系统退出")
+        print("\n\n👋 用户中断，程序退出")
     except Exception as e:
-        print(f"\n❌ 系统运行错误: {e}")
-        logger.error(f"系统运行错误: {e}", exc_info=True)
-        sys.exit(1)
+        print(f"\n❌ 程序运行错误: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
-    main() 
+    main()
