@@ -1,0 +1,32 @@
+{
+    "name": "upgraded-frontend",
+    "version": "2.0.0",
+    "description": "升级版工程AI助手前端界面",
+    "main": "start_upgraded_frontend.js",
+    "scripts": {
+        "start": "node frontend_server.js",
+        "direct": "node frontend_server.js",
+        "upgraded": "node start_upgraded_frontend.js",
+        "test": "node test_config.js",
+        "test-python": "python check_python_deps.py",
+        "install-deps": "npm install express http-proxy-middleware multer node-fetch"
+    },
+    "dependencies": {
+        "express": "^4.18.2",
+        "form-data": "^4.0.3",
+        "http-proxy-middleware": "^2.0.6",
+        "multer": "^1.4.5-lts.1",
+        "node-fetch": "^3.3.2"
+    },
+    "keywords": [
+        "frontend",
+        "ai",
+        "engineering",
+        "assistant"
+    ],
+    "author": "Engineering AI Assistant Team",
+    "license": "MIT",
+    "engines": {
+        "node": ">=14.0.0"
+    }
+}

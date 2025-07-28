@@ -1,0 +1,65 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Package files
+*.zip
+*.tar.gz
+
+# Agent memory files
+*.pkl
+
+# Large directories that shouldn't be in git
+../minute_summary/
+../AutoDocGen/
+../ai_*/
+../gauz_ai_*/
+../mcp-*/
+../mvp_*/
+../new_project/
+../ragtool/
+../reference\ doc/
+../retrieval*/
+../testragproj/
+../实习协议*.pdf
+../文物表格*/
+../陆氏大宗祠*/
+
+# Upload directories
+uploads/
+*.pdf 

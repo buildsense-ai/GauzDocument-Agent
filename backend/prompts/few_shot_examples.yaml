@@ -1,0 +1,273 @@
+# Few-Shot Prompt 示例模板
+# 用于ReAct Agent的示例学习
+
+# 简单对话示例
+simple_conversation_examples: |
+  📌 **简单对话示例模板**：
+
+  用户提问: "你好，请简单介绍一下自己"
+
+  Thought: 这是一个简单的打招呼和自我介绍请求，不需要调用任何工具，我可以直接回答。
+  Final Answer: 你好！我是一个ReAct智能代理，专门帮助处理各种任务：
+
+  🔧 **我的能力**：
+  - 📄 PDF文件解析和内容提取
+  - 🔍 文档语义检索和查询
+  - 📝 各种格式文档生成
+  - 💡 基于项目上下文的智能分析
+
+  🎯 **工作方式**：
+  我会根据您的需求，通过思考(Thought)和行动(Action)的方式，调用合适的工具来完成任务。对于复杂的任务，我会展示完整的思考过程。
+
+  有什么我可以帮助您的吗？
+
+  用户提问: "今天天气怎么样？"
+
+  Thought: 用户询问天气信息，但我没有获取天气信息的工具，我应该诚实地说明我的能力范围。
+  Final Answer: 抱歉，我目前没有获取天气信息的功能。
+
+  我的专长是处理以下任务：
+  - PDF文档解析和内容提取
+  - 文档检索和查询
+  - 报告和文档生成
+
+  如果您有相关的文档处理需求，我很乐意帮助您！
+
+# PDF处理示例
+pdf_processing_examples: |
+  📌 **PDF处理示例模板**：
+
+  用户上传PDF: "文物概况调查.pdf"
+
+  Thought: 用户上传了PDF文件，但我不能重复解析。需要先判断该项目是否已经解析过。
+  Action: check_project_state
+  Action Input: {"project_name": "医灵古庙"}
+
+  Observation: {"pdf_parsed": false}
+
+  Thought: 项目还未解析PDF，我将调用pdf_parser进行解析。
+  Action: pdf_parser
+  Action Input: {"project_name": "医灵古庙", "file": "minio://yiling_ancient_temple/文物概况调查.pdf", "action": "parse"}
+
+  Observation: {"success": true, "message": "PDF解析成功完成"}
+
+  Thought: PDF解析已完成，现在可以处理用户的具体问题。
+  Final Answer: PDF文件已成功解析，内容已添加到项目知识库中。您现在可以询问关于PDF内容的问题。
+
+# 语义检索示例
+semantic_search_examples: |
+  📌 **语义检索示例模板**：
+
+  # 查询类问题 - 详细结构化回答
+  用户提问: "医灵古庙的建筑特色和历史价值是什么？"
+
+  Thought: 用户询问建筑特色和历史价值，这是信息查询类问题，需要进行语义检索并提供详细结构化回答。
+  Action: rag_tool
+  Action Input: {"query": "医灵古庙 建筑特色 历史价值 文化意义", "project_name": "医灵古庙", "top_k": 6}
+
+  Observation: {"success": true, "results": [{"content": "医灵古庙始建于明朝嘉靖年间，为三进院落布局，具有典型的江南古建筑风格", "relevance": 0.92, "source": "历史调研报告.pdf"}, {"content": "主殿采用抬梁式木构架，斗拱精美，彩绘保存完好，体现了明代建筑工艺水平", "relevance": 0.89, "source": "建筑测绘报告.pdf"}]}
+
+  Thought: 检索到高质量的相关内容，这是查询类问题，我需要提供结构化的详细回答，整合检索信息并标注来源。
+  Final Answer: ## 医灵古庙的建筑特色与历史价值
+
+  ### 建筑特色
+  医灵古庙具有典型的江南古建筑风格：
+  - **布局结构**：三进院落布局，体现明代寺庙建筑传统格局
+  - **建筑工艺**：主殿采用抬梁式木构架，斗拱精美，彩绘保存完好
+
+  ### 历史价值
+  - **建造年代**：始建于明朝嘉靖年间，距今数百年历史
+  - **工艺价值**：体现了明代建筑工艺水平，具有重要研究价值
+
+  *信息来源：历史调研报告.pdf、建筑测绘报告.pdf*
+
+  # 操作类请求示例 - 第一轮（执行工具）
+  用户上传: "请解析这个PDF文件：古建筑调研.pdf"
+
+  Thought: 用户上传了PDF文件，这是操作类请求，需要调用pdf_parser进行解析。
+  Action: pdf_parser
+  Action Input: {"project_name": "医灵古庙", "minio_url": "minio://project/古建筑调研.pdf"}
+
+  # 系统返回Observation后的第二轮（给出最终答案）
+  [假设系统返回: Observation: {"success": true, "message": "PDF解析成功完成", "extracted_pages": 25, "text_length": 15000}]
+
+  Thought: PDF解析成功完成，这是操作类请求，我应该简洁地确认操作结果并告知下一步可以做什么。
+  Final Answer: ✅ PDF解析完成！
+
+  已成功解析《古建筑调研.pdf》，提取了25页内容共15000字符的文本信息。现在您可以：
+  - 询问文档中的具体信息
+  - 进行内容检索和分析
+  - 基于此文档生成相关报告
+
+  # 生成类任务示例 - 第一轮（检索资料）
+  用户提问: "请生成一份医灵古庙的历史分析报告"
+
+  Thought: 用户需要生成报告，这是生成类任务，需要先检索相关资料，然后调用document_generator。
+  Action: rag_tool
+  Action Input: {"query": "医灵古庙 历史 建筑 文化", "project_name": "医灵古庙", "top_k": 8}
+
+  # 系统返回检索结果后的第二轮（调用文档生成器）
+  [假设系统返回: Observation: {"success": true, "results": [{"content": "相关历史资料...", "relevance": 0.95}]}]
+
+  Thought: 检索到相关资料，现在调用文档生成工具。
+  Action: document_generator
+  Action Input: {"query": "生成医灵古庙历史分析报告，包括建筑特色、历史沿革、文化价值等内容", "project_name": "医灵古庙"}
+
+  # 系统返回生成结果后的第三轮（确认任务）
+  [假设系统返回: Observation: {"success": true, "task_id": "doc_2024_001", "status": "processing", "estimated_time": "3-5分钟"}]
+
+  Thought: 文档生成任务已启动，这是生成类任务，我应该确认任务状态并提供任务信息。
+  Final Answer: 📝 历史分析报告生成中...
+
+  已启动医灵古庙历史分析报告的生成任务：
+  - **任务ID**: doc_2024_001  
+  - **报告内容**: 建筑特色、历史沿革、文化价值分析
+  - **预计完成**: 3-5分钟
+  - **数据来源**: 基于项目中已解析的相关文档
+
+  报告完成后将包含详细的历史分析和专业评估内容。
+
+  用户提问: "医灵古庙的修复技术方案是什么？"
+
+  Thought: 用户询问修复技术方案，这是查询类问题，需要检索相关技术文档。
+  Action: rag_tool
+  Action Input: {"query": "医灵古庙 修复 技术 方案", "project_name": "医灵古庙", "top_k": 5}
+
+  Observation: {"success": true, "results": []}
+
+  Thought: 检索结果为空，没有找到相关的修复技术文档。这是异常情况，应该说明问题并建议解决方案。
+  Final Answer: ❌ 暂无相关信息
+
+  抱歉，在现有文档中没有找到医灵古庙修复技术方案的相关信息。
+
+  **建议措施**：
+  - 补充修复技术方案相关文档
+  - 上传工程设计图纸或技术报告
+  - 提供修复工艺说明等专业资料
+
+  完善资料后，我可以为您提供详细的技术方案分析。
+
+# 错误处理示例
+error_handling_examples: |
+  📌 **错误处理示例模板**：
+
+  用户提问: "分析这个PDF文件"
+
+  Thought: 用户需要分析PDF文件，我应该先检查项目状态，然后进行PDF解析。
+  Action: check_project_state
+  Action Input: {"project_id": "yiling_ancient_temple"}
+
+  Observation: {"success": false, "error_type": "api_error", "http_status": 404, "error_message": "Project not found"}
+
+  Thought: 项目状态检查失败，可能是项目ID不正确。我需要确认正确的项目信息。
+  Final Answer: 抱歉，无法找到指定的项目信息。请确认项目ID是否正确，或者重新创建项目。
+
+  用户提问: "搜索古建筑保护资料"
+
+  Thought: 用户需要搜索古建筑保护资料，我应该使用rag_tool进行语义检索。
+  Action: rag_tool
+  Action Input: {"query": "古建筑保护", "project_name": "医灵古庙", "top_k": 5}
+
+  Observation: {"success": false, "error_type": "connection_error", "error_message": "Connection timeout"}
+
+  Thought: RAG服务连接超时，这是网络问题，可以建议用户稍后重试。
+  Final Answer: 检索服务暂时不可用，请稍后重试。如果问题持续存在，请联系系统管理员。
+
+# 综合工作流示例
+workflow_examples: |
+  📌 **综合工作流示例模板**：
+
+  用户上传PDF: "建筑结构分析.pdf" 并提问: "请基于这个PDF生成一份结构安全评估报告"
+
+  Thought: 用户上传了PDF文件并需要生成报告，我需要先解析PDF，然后检索相关信息，最后生成报告。
+  Action: check_project_state
+  Action Input: {"project_id": "yiling_ancient_temple"}
+
+  Observation: {"pdf_parsed": false}
+
+  Thought: 项目还未解析PDF，我需要先解析PDF文件。
+  Action: pdf_parser
+  Action Input: {"project_name": "医灵古庙", "file": "minio://yiling_ancient_temple/建筑结构分析.pdf", "action": "parse"}
+
+  Observation: {"success": true, "message": "PDF解析成功完成"}
+
+  Thought: PDF解析完成，现在我需要检索相关的结构安全信息来生成报告。
+  Action: rag_tool
+  Action Input: {"query": "建筑结构 安全评估 结构分析", "project_name": "医灵古庙", "top_k": 8}
+
+  Observation: {"success": true, "results": [{"content": "建筑结构分析显示...", "relevance": 0.94}, {"content": "安全评估要点...", "relevance": 0.91}]}
+
+  Thought: 检索到相关结构信息，现在可以基于PDF内容和检索结果生成安全评估报告。
+  Action: document_generator
+  Action Input: {"action": "generate_long_document", "title": "建筑结构安全评估报告", "requirements": "基于PDF解析内容和检索到的结构信息，生成详细的结构安全评估报告"}
+
+  Observation: {"success": true, "task_id": "doc_456", "status": "processing"}
+
+  Thought: 报告生成任务已启动。
+  Final Answer: 已成功解析PDF文件并开始生成建筑结构安全评估报告，任务ID为doc_456。报告将基于PDF内容和相关结构信息，预计需要几分钟完成。 
+
+# 文档生成示例
+document_generation_examples: |
+  # 文档生成示例 - 收到task_id后立即确认
+
+  用户提问: "请生成一个关于医灵古庙的文物影响评估报告"
+
+  Thought: 用户要求生成文档，这是文档生成请求。应该直接调用document_generator工具，不需要先进行RAG检索。
+  Action: document_generator
+  Action Input: {"query": "生成医灵古庙文物影响评估报告，包含文物现状分析、施工影响评估、保护措施建议、监测方案和应急方案", "project_name": "医灵古庙"}
+
+  Observation: {"success": true, "task_id": "doc_123", "status": "pending", "message": "文档生成任务已提交", "files": null, "minio_urls": null}
+
+  Thought: 文档生成任务已成功提交，获得了task_id。现在应该立即告知用户任务已开始，前端会自动轮询查询任务状态直到完成。
+  Final Answer: ✅ 医灵古庙文物影响评估报告生成任务已启动！
+
+  **任务信息：**
+  - 任务ID: doc_123
+  - 状态: 正在处理中
+  - 内容: 文物现状分析、施工影响评估、保护措施建议、监测方案、应急方案
+
+  📊 系统正在生成报告，预计需要几分钟时间。完成后将自动显示下载链接，请稍候...
+
+  用户提问: "帮我制作一个项目总结文档"
+
+  Thought: 用户要求制作文档，这是文档生成请求。直接调用document_generator工具。
+  Action: document_generator  
+  Action Input: {"query": "制作项目总结文档，包含项目概况、工作内容、主要成果、问题与建议等内容", "project_name": "医灵古庙"}
+
+  Observation: {"success": true, "task_id": "doc_456", "status": "pending", "message": "文档生成任务已提交，任务ID: doc_456", "files": null, "minio_urls": null}
+
+  Thought: 获得了task_id，任务已成功提交。应该立即确认并告知用户系统会自动跟踪进度。
+  Final Answer: ✅ 项目总结文档生成任务已提交！
+
+  **任务信息：**
+  - 任务ID: doc_456
+  - 状态: 处理中
+  - 内容: 项目概况、工作内容、主要成果、问题与建议
+
+  🔄 文档正在生成中，系统会自动跟踪进度。完成后将提供下载链接，请耐心等待...
+
+  用户提问: "生成一份建筑分析报告"
+
+  Thought: 用户要求生成报告，这是文档生成请求。直接调用document_generator工具。
+  Action: document_generator
+  Action Input: {"query": "生成建筑分析报告，包含建筑特色、历史价值、保护现状等内容", "project_name": "医灵古庙"}
+
+  Observation: {"success": false, "error_message": "服务暂时不可用", "tool_name": "document_generator"}
+
+  Thought: 文档生成服务出现故障，无法提交任务。需要告知用户服务问题。
+  Final Answer: ⚠️ 文档生成服务暂时不可用
+
+  抱歉，当前无法生成建筑分析报告，文档生成服务出现临时故障。
+
+  **建议措施：**
+  1. 请稍后重试文档生成功能
+  2. 或联系系统管理员检查服务状态
+  3. 您也可以先查询相关资料，待服务恢复后再生成文档
+
+  *注：这是系统服务问题，非用户操作问题。*
+
+  # 重要注意：收到task_id后的处理原则
+  # 1. 立即返回Final Answer确认任务已提交
+  # 2. 告知用户系统会自动跟踪进度
+  # 3. 不要尝试等待或查询任务状态
+  # 4. 前端会负责轮询和显示最终结果 
