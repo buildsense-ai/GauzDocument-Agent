@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+
 # 加载环境变量
 env_path = Path(__file__).parent / '.env'
 print(f"🔧 [app_independent] 加载环境文件: {env_path}")
@@ -170,7 +171,7 @@ class ConcurrencyManager:
         if template_tool_available and TemplateSearchTool:
             try:
                 self.template_tool = TemplateSearchTool()
-                logger.info("✅ 模板搜索工具初始化成功（单实例，使用MySQL连接池）")
+                logger.info("✅ 模板搜索工具初始化成功（jieba分词+MySQL FULLTEXT，使用连接池）")
             except Exception as e:
                 logger.error(f"❌ 模板搜索工具初始化失败: {e}")
                 self.template_tool = None
@@ -388,14 +389,77 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# 添加CORS中间件
+# 添加CORS中间件 - 优化配置确保OPTIONS请求正确处理
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # 允许所有源，生产环境建议设置具体域名
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],  # 明确列出所有允许的方法
+    allow_headers=["*"],  # 允许所有头部
+    expose_headers=["*"],  # 暴露所有响应头部
+    max_age=3600,  # 预检请求缓存时间
 )
+
+# 为所有主要路由明确添加OPTIONS支持
+@app.options("/")
+async def options_root():
+    """处理根路径的OPTIONS请求"""
+    return JSONResponse(
+        content={"message": "OK"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+@app.options("/template_search")
+async def options_template_search():
+    """处理模板搜索路径的OPTIONS请求"""
+    return JSONResponse(
+        content={"message": "OK"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+@app.options("/document_search")
+async def options_document_search():
+    """处理文档搜索路径的OPTIONS请求"""
+    return JSONResponse(
+        content={"message": "OK"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+@app.options("/health")
+async def options_health():
+    """处理健康检查路径的OPTIONS请求"""
+    return JSONResponse(
+        content={"message": "OK"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+@app.options("/stats")
+async def options_stats():
+    """处理统计信息路径的OPTIONS请求"""
+    return JSONResponse(
+        content={"message": "OK"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 @app.get("/")
 async def root():
@@ -501,9 +565,9 @@ async def get_stats():
 @app.post("/template_search", response_model=TemplateSearchResponse)
 async def template_search(request: TemplateSearchRequest):
     """
-    模版搜索接口 - ElasticSearch搜索
+    模版搜索接口 - MySQL FULLTEXT搜索
     
-    输入自然语言query，输出模版内容
+    输入自然语言query，使用jieba分词+MySQL FULLTEXT搜索，输出模版内容
     """
     global concurrency_manager
     

@@ -1,16 +1,18 @@
 """
-模版搜索工具 - ElasticSearch搜索
+模版搜索工具 - MySQL FULLTEXT搜索
 独立工具，输入自然语言query，输出模版内容
 """
 import os
 import json
 import logging
+import re
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from dotenv import load_dotenv
-from elasticsearch import Elasticsearch
-from elasticsearch.exceptions import ConnectionError, NotFoundError
+# 移除ElasticSearch依赖，改用MySQL FULLTEXT搜索
 import pymysql
+import jieba
+import jieba.posseg as pseg
 
 # 加载环境变量
 load_dotenv()
@@ -22,149 +24,71 @@ logger = logging.getLogger(__name__)
 
 class TemplateSearchTool:
     """
-    模版搜索工具 - ElasticSearch搜索
+    模版搜索工具 - MySQL FULLTEXT搜索
     
     功能：
-    1. ElasticSearch搜索候选模版
-    2. 返回最佳匹配的模版内容
+    1. jieba分词提取关键词
+    2. MySQL FULLTEXT搜索匹配模版
+    3. 返回最佳匹配的模版内容
     """
     
     def __init__(self):
         """初始化模版搜索工具"""
-        # 初始化ElasticSearch客户端
-        self.es_client = None
-        self.es_index_name = "template_search_index"
-        self._init_elasticsearch()
+        # 初始化jieba（可选，用于更好的分词效果）
+        self._init_jieba()
+        
+        # 定义停用词列表
+        self.stop_words = {
+            '我', '需要', '一个', '关于', '的', '了', '在', '是', '有', '和', '与', '或者', 
+            '以及', '还有', '如何', '怎么', '什么', '哪个', '这个', '那个', '给我', '帮我',
+            '请', '谢谢', '模板', '模版', '报告', '文档', '资料', '内容'
+        }
         
         logger.info("✅ 模版搜索工具初始化完成")
-        logger.info("🔍 功能: ElasticSearch搜索")
+        logger.info("🔍 功能: jieba分词 + MySQL FULLTEXT搜索")
+        logger.info("📝 FULLTEXT搜索: template_name, guide_summary")
+        logger.info("📝 LIKE回退搜索: template_name, guide_summary, report_guide")
     
-    def _init_elasticsearch(self):
-        """初始化ElasticSearch客户端并刷新模板索引"""
+    def _init_jieba(self):
+        """初始化jieba分词器"""
         try:
-            # ElasticSearch配置
-            es_host = os.getenv("ELASTICSEARCH_HOST", "localhost")
-            es_port = int(os.getenv("ELASTICSEARCH_PORT", "9200"))
-            es_scheme = os.getenv("ELASTICSEARCH_SCHEME", "http")
-            
-            # 创建ES客户端
-            es_url = f"{es_scheme}://{es_host}:{es_port}"
-            self.es_client = Elasticsearch(
-                hosts=[es_url],
-                verify_certs=False,
-                ssl_show_warn=False,
-                request_timeout=30
-            )
-            
-            # 测试连接
-            if self.es_client.ping():
-                logger.info("✅ ElasticSearch连接成功")
-                # 每次初始化时都刷新索引
-                self._refresh_template_index()
-            else:
-                logger.warning("⚠️ ElasticSearch连接失败")
-                self.es_client = None
-                
+            # 设置jieba为精确模式
+            jieba.setLogLevel(logging.INFO)
+            logger.info("✅ jieba分词器初始化完成")
         except Exception as e:
-            logger.error(f"❌ ElasticSearch初始化失败: {e}")
-            self.es_client = None
+            logger.error(f"❌ jieba初始化失败: {e}")
     
-    def _refresh_template_index(self):
-        """刷新模板索引 - 每次系统初始化时运行"""
+    def _extract_keywords_with_jieba(self, query: str) -> str:
+        """使用jieba分词提取关键词"""
         try:
-            logger.info("🔄 开始刷新模板索引...")
+            # 使用jieba进行词性标注分词
+            words = pseg.cut(query)
             
-            # 1. 删除现有索引（如果存在）
-            if self.es_client.indices.exists(index=self.es_index_name):
-                logger.info(f"🗑️ 删除现有索引: {self.es_index_name}")
-                self.es_client.indices.delete(index=self.es_index_name)
+            # 提取有效关键词（名词、动词、形容词等）
+            keywords = []
+            for word, flag in words:
+                # 过滤停用词和单字符
+                if (len(word) >= 2 and 
+                    word not in self.stop_words and
+                    flag in ['n', 'nr', 'ns', 'nt', 'nz', 'v', 'vn', 'a', 'an']):  # 名词、动词、形容词
+                    keywords.append(word)
             
-            # 2. 创建新索引
-            logger.info(f"🔨 创建新索引: {self.es_index_name}")
-            mapping = {
-                "mappings": {
-                    "properties": {
-                        "guide_id": {"type": "keyword"},
-                        "template_name": {
-                            "type": "text",
-                            "analyzer": "standard",
-                            "search_analyzer": "standard"
-                        },
-                        "guide_summary": {
-                            "type": "text",
-                            "analyzer": "standard",
-                            "search_analyzer": "standard"
-                        },
-                        "usage_frequency": {"type": "integer"},
-                        "created_at": {"type": "date"}
-                    }
-                },
-                "settings": {
-                    "number_of_shards": 1,
-                    "number_of_replicas": 0
-                }
-            }
+            # 如果没有提取到关键词，使用原查询
+            if not keywords:
+                # 简单去除常见停用词
+                cleaned_query = query
+                for stop_word in self.stop_words:
+                    cleaned_query = cleaned_query.replace(stop_word, ' ')
+                return cleaned_query.strip()
             
-            self.es_client.indices.create(index=self.es_index_name, body=mapping)
-            logger.info("✅ 索引创建完成")
-                
-            # 3. 从MySQL同步最新数据
-            self._sync_latest_templates_to_es()
-                
-        except Exception as e:
-            logger.error(f"❌ 刷新模板索引失败: {e}")
-    
-    def _sync_latest_templates_to_es(self):
-        """从MySQL同步最新模板数据到ElasticSearch"""
-        try:
-            logger.info("📥 开始同步最新模板数据...")
-            
-            # 获取模板数据
-            templates = self._mysql_search_report_guides("", limit=1000)
-            
-            if not templates:
-                logger.warning("⚠️ MySQL中没有找到模板数据")
-                return
-            
-            # 准备批量索引数据
-            actions = []
-            for template in templates:
-                # 修复：清理guide_summary中的多余引号
-                guide_summary = template.get("guide_summary", "") or ""
-                if guide_summary.startswith('"') and guide_summary.endswith('"'):
-                    guide_summary = guide_summary[1:-1]  # 去掉首尾引号
-                
-                doc = {
-                    "guide_id": template.get("guide_id"),
-                    "template_name": template.get("template_name", ""),
-                    "guide_summary": guide_summary,
-                    "usage_frequency": template.get("usage_frequency", 0),
-                    "created_at": template.get("created_at", "")
-                }
-                
-                action = {
-                    "_index": self.es_index_name,
-                    "_id": template.get("guide_id"),
-                    "_source": doc
-                }
-                actions.append(action)
-            
-            # 执行批量索引
-            if actions:
-                from elasticsearch.helpers import bulk
-                bulk(self.es_client, actions)
-                logger.info(f"✅ 成功同步 {len(actions)} 个模板到ElasticSearch")
-                
-                # 强制刷新索引
-                self.es_client.indices.refresh(index=self.es_index_name)
-                logger.info("✅ 索引刷新完成，数据已可搜索")
-            else:
-                logger.warning("⚠️ 没有数据需要同步")
+            result = ' '.join(keywords)
+            logger.info(f"🔪 jieba分词结果: '{query}' -> '{result}'")
+            return result
             
         except Exception as e:
-            logger.error(f"❌ 同步最新模板数据失败: {e}")
-    
-
+            logger.error(f"❌ jieba分词失败: {e}")
+            # 如果分词失败，返回原查询
+            return query
     
     def search_templates(self, query: str) -> str:
         """
@@ -185,54 +109,48 @@ class TemplateSearchTool:
             else:
                 combined_query = str(query)
             
-            logger.info(f"🔗 处理后查询: {combined_query}")
+            # 使用jieba分词提取关键词
+            processed_query = self._extract_keywords_with_jieba(combined_query)
             
-            # 使用ElasticSearch搜索
-            if self.es_client:
-                logger.info("🚀 使用ElasticSearch搜索模式")
+            logger.info(f"🔗 处理后查询: {processed_query}")
+            
+            # 使用MySQL FULLTEXT搜索
+            mysql_candidates = self._search_templates_with_mysql_fulltext(processed_query, limit=1)
+            
+            if mysql_candidates:
+                # 直接返回最佳匹配的report_guide内容
+                best_candidate = mysql_candidates[0]
+                guide_id = best_candidate.get('guide_id')
+                report_guide = best_candidate.get('report_guide')
+                template_name = best_candidate.get('template_name', '未知模板')
                 
-                # ElasticSearch搜索获取top1结果
-                es_candidates = self._search_templates_with_es(combined_query, size=1)
-                
-                if es_candidates:
-                    # 直接获取最佳匹配的report_guide内容
-                    best_candidate = es_candidates[0]
-                    guide_id = best_candidate.get('guide_id')
-                    
-                    if guide_id:
-                        full_template = self._mysql_get_report_guide_by_id(guide_id)
-                        if full_template:
-                            best_report_guide = full_template.get('report_guide')
-                            
-                            if best_report_guide:
-                                result_text = f"✅ 模版搜索成功 (ElasticSearch)，已找到最佳匹配的报告指南：\n\n"
-                                result_text += f"📋 **报告指南内容**：\n{best_report_guide}\n"
-                                
-                                logger.info(f"✅ ElasticSearch模式成功找到最佳报告指南")
-                                
-                                # 更新使用频率统计
-                                try:
-                                    self._mysql_update_report_guide_usage(guide_id)
-                                except:
-                                    pass  # 忽略统计更新错误
-                                
-                                return result_text
-                            else:
-                                logger.warning("⚠️ 找到模板但report_guide为空")
-                        else:
-                            logger.warning("⚠️ 无法从MySQL获取完整模板数据")
+                if report_guide:
+                    # 将report_guide转换为适合返回的格式
+                    if isinstance(report_guide, dict):
+                        # 如果是字典对象，转换为JSON字符串
+                        report_guide_content = json.dumps(report_guide, ensure_ascii=False, indent=2)
                     else:
-                        logger.warning("⚠️ ElasticSearch结果缺少guide_id")
+                        # 如果已经是字符串，直接使用
+                        report_guide_content = str(report_guide)
+                    
+                    logger.info(f"✅ MySQL FULLTEXT模式成功找到最佳报告指南: {template_name}")
+                    
+                    # 更新使用频率统计
+                    try:
+                        if guide_id:
+                            self._mysql_update_report_guide_usage(guide_id)
+                    except:
+                        pass  # 忽略统计更新错误
+                    
+                    # 直接返回report_guide内容，不添加额外的格式化文本
+                    return report_guide_content
                 else:
-                    logger.info("📭 ElasticSearch未找到候选模板")
-                
-                # ElasticSearch模式未找到结果
-                return f"❌ 模版搜索 (ElasticSearch): 未找到匹配模板，建议尝试不同的查询词"
-            
+                    logger.warning("⚠️ 找到模板但report_guide为空")
             else:
-                # ElasticSearch不可用
-                logger.error("❌ ElasticSearch不可用")
-                return f"❌ 模版搜索失败: ElasticSearch服务不可用"
+                logger.info("📭 MySQL FULLTEXT未找到候选模板")
+            
+            # 未找到结果
+            return f"❌ 模版搜索 (MySQL FULLTEXT): 未找到匹配模板，建议尝试不同的查询词"
                 
         except Exception as e:
             logger.error(f"❌ 模版搜索执行失败: {e}")
@@ -263,95 +181,89 @@ class TemplateSearchTool:
             logger.error(f"❌ 参数搜索失败: {e}")
             return f"❌ 参数搜索失败: {str(e)}"
     
-    def _search_templates_with_es(self, query: str, size: int = 1) -> List[Dict[str, Any]]:
-        """使用ElasticSearch搜索模板（召回阶段）"""
-        try:
-            # 构建双字段查询：只搜索template_name和guide_summary
-            search_body = {
-                "size": size,
-                "query": {
-                    "multi_match": {
-                        "query": query,
-                        "fields": [
-                            "template_name^2",    # 模板名称权重较高
-                            "guide_summary^3"     # 指南总结权重最高
-                        ],
-                        "type": "best_fields",
-                        "fuzziness": "AUTO"
-                    }
-                },
-                "sort": [
-                    {"_score": {"order": "desc"}},
-                    {"usage_frequency": {"order": "desc"}}
-                ]
-            }
-            
-            response = self.es_client.search(index=self.es_index_name, body=search_body)
-            
-            results = []
-            for hit in response['hits']['hits']:
-                result = hit['_source']
-                result['es_score'] = hit['_score']
-                results.append(result)
-            
-            logger.info(f"🔍 ElasticSearch召回 {len(results)} 个候选模板")
-            return results
-            
-        except Exception as e:
-            logger.error(f"❌ ElasticSearch搜索失败: {e}")
-            return []
-    
-
-    
-    def _mysql_search_report_guides(self, query: str = "", limit: int = 1000) -> List[Dict[str, Any]]:
-        """从MySQL搜索报告指南模板"""
+    def _search_templates_with_mysql_fulltext(self, query: str, limit: int = 1) -> List[Dict[str, Any]]:
+        """使用MySQL FULLTEXT搜索模板"""
         try:
             with mysql_manager.get_cursor() as cursor:
-                base_sql = """
-                SELECT rgt.guide_id, rgt.document_type_id, rgt.template_name, rgt.project_category,
-                       rgt.target_objects, rgt.report_guide, rgt.guide_summary, rgt.usage_frequency, rgt.created_at,
-                       dt.type_name, dt.category
+                # 使用MySQL FULLTEXT搜索，只搜索template_name和guide_summary字段
+                # 注意：report_guide通常为JSON类型，不支持FULLTEXT索引
+                sql = """
+                SELECT rgt.guide_id, rgt.template_name, rgt.report_guide, rgt.guide_summary, 
+                       rgt.usage_frequency, rgt.created_at,
+                       MATCH(rgt.template_name, rgt.guide_summary) AGAINST(%s) AS relevance
                 FROM report_guide_templates rgt
-                LEFT JOIN document_types dt ON rgt.document_type_id = dt.type_id
-                WHERE 1=1
+                WHERE MATCH(rgt.template_name, rgt.guide_summary) AGAINST(%s)
+                ORDER BY relevance DESC, rgt.usage_frequency DESC
+                LIMIT %s
                 """
                 
-                params = []
-                
-                if query:
-                    base_sql += " AND (rgt.template_name LIKE %s OR rgt.project_category LIKE %s OR dt.type_name LIKE %s)"
-                    search_pattern = f"%{query}%"
-                    params.extend([search_pattern, search_pattern, search_pattern])
-                
-                base_sql += " ORDER BY rgt.usage_frequency DESC, rgt.created_at DESC LIMIT %s"
-                params.append(limit)
-                
-                cursor.execute(base_sql, params)
+                cursor.execute(sql, (query, query, limit))
                 results = cursor.fetchall()
                 
-                report_guides = []
+                templates = []
                 for result in results:
-                    guide = {
+                    template = {
                         'guide_id': result['guide_id'],
-                        'document_type_id': result['document_type_id'],
                         'template_name': result['template_name'],
-                        'project_category': result['project_category'],
-                        'target_objects': json.loads(result['target_objects']) if result['target_objects'] else [],
                         'report_guide': json.loads(result['report_guide']) if result['report_guide'] else {},
                         'guide_summary': result['guide_summary'] if result['guide_summary'] else "",
                         'usage_frequency': result['usage_frequency'],
                         'created_at': result['created_at'].isoformat() if result['created_at'] else "",
-                        'document_type_name': result['type_name'],
-                        'document_category': result['category']
+                        'relevance': float(result['relevance'])
                     }
-                    report_guides.append(guide)
+                    templates.append(template)
                 
-                logger.info(f"从MySQL搜索到 {len(report_guides)} 个报告指南")
-                return report_guides
+                logger.info(f"🔍 MySQL FULLTEXT搜索找到 {len(templates)} 个候选模板")
+                return templates
             
         except Exception as e:
-            logger.error(f"MySQL搜索报告指南失败: {e}")
+            logger.error(f"❌ MySQL FULLTEXT搜索失败: {e}")
+            # 如果FULLTEXT搜索失败，回退到LIKE搜索
+            return self._search_templates_with_mysql_like(query, limit)
+    
+    def _search_templates_with_mysql_like(self, query: str, limit: int = 1) -> List[Dict[str, Any]]:
+        """使用MySQL LIKE搜索模板（FULLTEXT搜索的回退方案）"""
+        try:
+            with mysql_manager.get_cursor() as cursor:
+                # 使用LIKE搜索作为回退方案
+                sql = """
+                SELECT rgt.guide_id, rgt.template_name, rgt.report_guide, rgt.guide_summary, 
+                       rgt.usage_frequency, rgt.created_at
+                FROM report_guide_templates rgt
+                WHERE rgt.template_name LIKE %s 
+                   OR rgt.guide_summary LIKE %s
+                   OR rgt.report_guide LIKE %s
+                ORDER BY rgt.usage_frequency DESC, rgt.created_at DESC
+                LIMIT %s
+                """
+                
+                search_pattern = f"%{query}%"
+                cursor.execute(sql, (search_pattern, search_pattern, search_pattern, limit))
+                results = cursor.fetchall()
+                
+                templates = []
+                for result in results:
+                    template = {
+                        'guide_id': result['guide_id'],
+                        'template_name': result['template_name'],
+                        'report_guide': json.loads(result['report_guide']) if result['report_guide'] else {},
+                        'guide_summary': result['guide_summary'] if result['guide_summary'] else "",
+                        'usage_frequency': result['usage_frequency'],
+                        'created_at': result['created_at'].isoformat() if result['created_at'] else "",
+                        'relevance': 1.0  # LIKE搜索没有相关性分数，设为固定值
+                    }
+                    templates.append(template)
+                
+                logger.info(f"🔍 MySQL LIKE搜索找到 {len(templates)} 个候选模板")
+                return templates
+            
+        except Exception as e:
+            logger.error(f"❌ MySQL LIKE搜索失败: {e}")
             return []
+    
+
+    
+# 移除旧的MySQL搜索方法，已由新的FULLTEXT搜索方法替代
 
     def _mysql_get_report_guide_by_id(self, guide_id: str) -> Optional[Dict[str, Any]]:
         """根据ID获取报告指南"""
