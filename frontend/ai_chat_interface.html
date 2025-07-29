@@ -6,8 +6,55 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>工程AI助手 - 升级版紫色主题</title>
 
-    <!-- 🆕 引入marked.js库用于Markdown解析 -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- 🆕 引入marked.js库用于Markdown解析 - 稳定版本 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@16.1.1/lib/marked.umd.min.js"
+        onerror="loadMarkedFromBackup()"></script>
+
+    <!-- 🔧 备用CDN和错误处理 -->
+    <script>
+        // 备用CDN加载函数
+        function loadMarkedFromBackup() {
+            console.warn('⚠️ 主CDN加载失败，尝试备用CDN');
+            const backupSources = [
+                'https://cdnjs.cloudflare.com/ajax/libs/marked/16.1.1/lib/marked.umd.min.js',
+                'https://unpkg.com/marked@16.1.1/lib/marked.umd.min.js'
+            ];
+
+            let sourceIndex = 0;
+
+            function tryNextSource() {
+                if (sourceIndex >= backupSources.length) {
+                    console.error('❌ 所有marked.js CDN都加载失败，将使用备用渲染器');
+                    window.markedLoadFailed = true;
+                    return;
+                }
+
+                const script = document.createElement('script');
+                script.src = backupSources[sourceIndex];
+                script.onload = function () {
+                    console.log('✅ 备用CDN加载成功:', backupSources[sourceIndex]);
+                };
+                script.onerror = function () {
+                    console.warn('⚠️ 备用CDN失败:', backupSources[sourceIndex]);
+                    sourceIndex++;
+                    tryNextSource();
+                };
+                document.head.appendChild(script);
+            }
+
+            tryNextSource();
+        }
+
+        // 检查marked.js是否成功加载
+        window.addEventListener('DOMContentLoaded', function () {
+            setTimeout(function () {
+                if (typeof marked === 'undefined' && !window.markedLoadFailed) {
+                    console.warn('⚠️ marked.js加载超时，尝试备用方案');
+                    loadMarkedFromBackup();
+                }
+            }, 3000); // 3秒超时
+        });
+    </script>
 
     <style>
         * {
@@ -1528,6 +1575,18 @@
             display: block;
             margin: 12px 0;
             text-align: center;
+            max-width: 400px;
+        }
+
+        .image-container img {
+            max-width: 100% !important;
+            height: auto !important;
+            border-radius: 8px;
+            transition: transform 0.2s ease;
+        }
+
+        .image-container img:hover {
+            transform: scale(1.02);
         }
 
         .image-error {
@@ -1556,6 +1615,17 @@
 
             .prompt-options {
                 grid-template-columns: 1fr;
+            }
+
+            /* 移动设备上的图片优化 */
+            .image-container {
+                max-width: 280px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .image-container {
+                max-width: 250px;
             }
         }
     </style>

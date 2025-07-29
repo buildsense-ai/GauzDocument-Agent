@@ -8,6 +8,7 @@ import urllib.parse
 import asyncio
 import uuid
 import json
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +30,17 @@ from enhanced_react_agent import EnhancedReActAgent
 from tools import create_core_tool_registry
 from minio_client import upload_pdf_to_minio, get_minio_uploader
 from thought_logger import get_thought_data, clear_thought_queue, setup_thought_logger, restore_stdout
+
+# 🆕 导入数据库组件
+from database import get_db, Project, ChatSession, ChatMessage, ProjectFile
+from database.crud import (
+    create_project, get_project, get_all_projects, get_project_summary, update_project_stats,
+    delete_project, get_current_session, create_new_session, save_message, get_session_messages,
+    get_recent_messages, save_file_record, get_project_files, update_file_minio_path, get_project_by_name
+)
+from database.utils import setup_database, check_database_health
+from fastapi import Depends
+from sqlalchemy.orm import Session
 
 # 全局会话管理
 active_sessions: Dict[str, Dict[str, Any]] = {}
@@ -63,6 +75,32 @@ class StreamRequest(BaseModel):
 class StreamStartResponse(BaseModel):
     session_id: str
     stream_url: str
+
+# 🆕 新增数据模型
+class ProjectCreateRequest(BaseModel):
+    name: str
+    type: Optional[str] = None
+    description: Optional[str] = None
+
+class ProjectResponse(BaseModel):
+    success: bool
+    project: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+class ProjectListResponse(BaseModel):
+    success: bool
+    projects: List[Dict[str, Any]] = []
+    total: int = 0
+
+class ProjectSummaryResponse(BaseModel):
+    success: bool
+    data: Optional[Dict[str, Any]] = None
+
+class SessionMessagesResponse(BaseModel):
+    success: bool
+    messages: List[Dict[str, Any]] = []
+    total: int = 0
+    page: int = 1
 
 # 初始化FastAPI应用
 app = FastAPI(
@@ -123,11 +161,21 @@ async def startup_event():
         print(f"❌ 工具注册器初始化失败: {e}")
         tool_registry = None
     
+    # 🆕 初始化数据库
+    try:
+        print("🗄️ 初始化数据库...")
+        if setup_database():
+            print("✅ 数据库初始化成功")
+        else:
+            print("❌ 数据库初始化失败")
+    except Exception as e:
+        print(f"❌ 数据库初始化错误: {e}")
+    
     print("🎉 ReactAgent API服务启动完成！")
 
 @app.post("/react_solve", response_model=ChatResponse)
-async def react_solve(request: Request):
-    """处理ReactAgent请求，包含项目上下文"""
+async def react_solve(request: Request, db: Session = Depends(get_db)):
+    """处理ReactAgent请求，包含项目上下文，支持数据库存储"""
     try:
         # 🆕 第一步：提取请求头中的项目信息
         project_id = request.headers.get('x-project-id')
@@ -188,7 +236,7 @@ async def react_solve(request: Request):
         agent = EnhancedReActAgent(
             deepseek_client=deepseek_client,
             tool_registry=tool_registry,
-            max_iterations=10,
+            max_iterations=5,  # 🔧 减少最大迭代次数，避免无限循环
             verbose=True,
             enable_memory=True
         )
@@ -217,6 +265,50 @@ async def react_solve(request: Request):
                 restore_stdout()
                 print("🌊 ThoughtLogger已恢复")
             
+            # 🆕 保存消息到数据库 - 支持project_name
+            if project_id or project_name:
+                try:
+                    # 获取或创建当前会话
+                    if project_name:
+                        print(f"💾 使用项目名称保存消息: {project_name}")
+                        current_session = get_current_session(db, project_name=project_name)
+                        if not current_session:
+                            current_session = create_new_session(db, project_name=project_name)
+                        # 获取实际的project_id用于保存
+                        actual_project = get_project_by_name(db, project_name)
+                        actual_project_id = actual_project.id if actual_project else project_id
+                    else:
+                        current_session = get_current_session(db, project_id=project_id)
+                        if not current_session:
+                            current_session = create_new_session(db, project_id=project_id)
+                        actual_project_id = project_id
+                    
+                    # 保存用户消息
+                    save_message(
+                        db=db,
+                        project_id=actual_project_id,
+                        session_id=current_session.id,
+                        role="user",
+                        content=problem,
+                        extra_data={"files": files, "project_context": project_context, "project_name": project_name}
+                    )
+                    
+                    # 保存AI回复
+                    save_message(
+                        db=db,
+                        project_id=actual_project_id,
+                        session_id=current_session.id,
+                        role="assistant",
+                        content=result.response,
+                        thinking_data=result.thinking_process,
+                        extra_data={"total_iterations": result.total_iterations, "project_name": project_name}
+                    )
+                    
+                    print(f"💾 消息已保存到数据库: {project_name or project_id}")
+                except Exception as save_error:
+                    print(f"⚠️ 保存消息到数据库失败: {save_error}")
+                    # 不影响正常响应，只记录错误
+            
             return ChatResponse(
                 success=True,
                 content=[{"text": result.response}],
@@ -241,20 +333,35 @@ async def react_solve(request: Request):
         raise HTTPException(status_code=500, detail=f"处理请求失败: {str(e)}")
 
 @app.post("/api/upload")
-async def upload_file(request: Request, file: UploadFile = File(...)):
+async def upload_file(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
-    文件上传API - 自动上传PDF到MinIO
+    文件上传API - 自动上传PDF到MinIO，支持数据库记录
     """
     try:
         # 🔍 提取项目信息
-        project_id = request.headers.get('x-project-id', 'default')
+        project_id = request.headers.get('x-project-id')
         project_name_encoded = request.headers.get('x-project-name')
         project_name = None
         if project_name_encoded:
             project_name = urllib.parse.unquote(project_name_encoded)
         
+        # 🆕 如果有项目名称但没有ID，从数据库获取ID
+        if project_name and not project_id:
+            try:
+                project = get_project_by_name(db, project_name)
+                if project:
+                    project_id = project.id
+                    print(f"🔍 从数据库获取项目ID: {project_name} -> {project_id}")
+                else:
+                    print(f"⚠️ 数据库中未找到项目: {project_name}")
+            except Exception as e:
+                print(f"❌ 获取项目ID失败: {e}")
+        
+        # 🔧 确保项目ID有值，否则使用项目名称作为标识
+        effective_project_id = project_id or project_name or 'default'
+        
         print(f"📤 接收文件上传: {file.filename}")
-        print(f"🏗️ 项目信息: ID={project_id}, Name={project_name}")
+        print(f"🏗️ 项目信息: ID={project_id}, Name={project_name}, Effective={effective_project_id}")
         
         # 验证文件类型
         if not file.filename.lower().endswith('.pdf'):
@@ -270,36 +377,136 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         
         print(f"📁 临时文件保存到: {temp_file_path}")
         
-        # 🚀 上传到MinIO
-        minio_path = upload_pdf_to_minio(
+        # 🚀 上传到MinIO (增强版验证)
+        minio_path, upload_error = upload_pdf_to_minio(
             file_path=temp_file_path,
             original_filename=file.filename,
-            project_id=project_id
+            project_id=effective_project_id,
+            verify_checksum=True  # 启用校验和验证以确保完整性
         )
         
         if not minio_path:
             # 清理临时文件
             import os
             os.unlink(temp_file_path)
-            raise HTTPException(status_code=500, detail="MinIO上传失败")
+            error_detail = f"MinIO上传失败: {upload_error}" if upload_error else "MinIO上传失败"
+            print(f"❌ {error_detail}")
+            raise HTTPException(status_code=500, detail=error_detail)
         
-        print(f"✅ MinIO上传成功: {minio_path}")
+        print(f"✅ MinIO上传并验证成功: {minio_path}")
+        
+        # 🆕 保存文件记录到数据库 - 支持project_name
+        file_record = None
+        if effective_project_id and effective_project_id != 'default':
+            try:
+                print(f"💾 开始保存文件记录到数据库...")
+                print(f"💾 项目信息: ID={project_id}, Name={project_name}, Effective={effective_project_id}")
+                
+                # 获取或创建当前会话
+                if project_name:
+                    print(f"💾 使用项目名称保存文件记录: {project_name}")
+                    # 先验证项目是否存在
+                    actual_project = get_project_by_name(db, project_name)
+                    if not actual_project:
+                        raise Exception(f"项目不存在: {project_name}")
+                    actual_project_id = actual_project.id
+                    print(f"💾 找到项目: {actual_project_id}")
+                    
+                    current_session = get_current_session(db, project_name=project_name)
+                    if not current_session:
+                        print(f"💾 创建新会话...")
+                        current_session = create_new_session(db, project_name=project_name)
+                    print(f"💾 使用会话: {current_session.id}")
+                else:
+                    print(f"💾 使用项目ID保存文件记录: {effective_project_id}")
+                    actual_project_id = effective_project_id
+                    current_session = get_current_session(db, project_id=effective_project_id)
+                    if not current_session:
+                        print(f"💾 创建新会话...")
+                        current_session = create_new_session(db, project_id=effective_project_id)
+                    print(f"💾 使用会话: {current_session.id}")
+                
+                # 准备文件记录数据
+                file_data = {
+                    "project_id": actual_project_id,
+                    "session_id": current_session.id,
+                    "original_name": file.filename,
+                    "local_path": None,  # 不保存临时路径，因为会被删除
+                    "minio_path": minio_path,
+                    "file_size": len(file_content),
+                    "mime_type": file.content_type,
+                    "extra_data": {
+                        "upload_source": "api",
+                        "project_name": project_name,
+                        "project_id": actual_project_id,
+                        "frontend_source": "web",
+                        "upload_timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                print(f"💾 准备保存文件记录: {file_data}")
+                
+                # 保存文件记录
+                file_record = save_file_record(db=db, **file_data)
+                
+                print(f"💾 文件记录已保存到数据库: {file.filename} -> {project_name or actual_project_id}")
+                print(f"💾 文件记录ID: {file_record.id}")
+                
+            except Exception as save_error:
+                print(f"⚠️ 保存文件记录到数据库失败: {save_error}")
+                print(f"⚠️ 错误详情: {type(save_error).__name__}: {str(save_error)}")
+                import traceback
+                print(f"⚠️ 完整错误堆栈:")
+                traceback.print_exc()
+                
+                # 尝试回滚数据库事务
+                try:
+                    db.rollback()
+                    print(f"💾 数据库事务已回滚")
+                except Exception as rollback_error:
+                    print(f"⚠️ 回滚失败: {rollback_error}")
+                    
+                # 虽然数据库保存失败，但MinIO上传成功，文件仍然可用
+                # 不影响正常响应，只记录错误
+        else:
+            print(f"⚠️ 跳过数据库保存: effective_project_id={effective_project_id}")
         
         # 🧹 清理临时文件
         import os
-        os.unlink(temp_file_path)
+        try:
+            os.unlink(temp_file_path)
+            print(f"🧹 已清理临时文件: {temp_file_path}")
+        except Exception as cleanup_error:
+            print(f"⚠️ 清理临时文件失败: {cleanup_error}")
         
         # 返回文件信息
-        return {
+        response_data = {
             "success": True,
-            "message": "文件上传成功",
+            "message": "文件上传并验证成功",
             "originalName": file.filename,
             "minio_path": minio_path,  # 这是AI agent将使用的路径
-            "project_id": project_id,
+            "project_id": effective_project_id,
             "project_name": project_name,
             "size": len(file_content),
-            "mimetype": file.content_type
+            "mimetype": file.content_type,
+            "verified": True,  # 标记为已验证
+            "verification_details": {
+                "size_verified": True,
+                "existence_verified": True,
+                "checksum_verified": True,
+                "verification_timestamp": datetime.now().isoformat()
+            }
         }
+        
+        # 如果有数据库记录，添加记录ID
+        if file_record:
+            response_data["file_id"] = file_record.id
+            response_data["database_saved"] = True
+        else:
+            response_data["database_saved"] = False
+            response_data["database_error"] = "文件记录未保存到数据库，但MinIO上传成功"
+        
+        return response_data
         
     except HTTPException:
         raise
@@ -331,7 +538,7 @@ async def list_tools():
     )
 
 @app.post("/start_stream", response_model=StreamStartResponse)
-async def start_stream(request: Request):
+async def start_stream(request: Request, db: Session = Depends(get_db)):
     """启动流式思考会话"""
     try:
         # 🆕 第一步：提取请求头中的项目信息（与react_solve相同逻辑）
@@ -365,13 +572,65 @@ async def start_stream(request: Request):
         session_id = str(uuid.uuid4())
         
         # 存储会话信息
-        active_sessions[session_id] = {
+        session_data = {
             'problem': problem,
             'files': files,
             'project_context': project_context,
             'created_at': asyncio.get_event_loop().time()
         }
         
+        # 🆕 保存用户消息到数据库（与react_solve相同逻辑）
+        db_session_id = None
+        actual_project_id = None
+        project_name_for_save = None
+        
+        if project_id or project_name:
+            try:
+                # 获取或创建当前会话
+                if project_name:
+                    print(f"💾 使用项目名称保存消息: {project_name}")
+                    current_session = get_current_session(db, project_name=project_name)
+                    if not current_session:
+                        current_session = create_new_session(db, project_name=project_name)
+                    # 获取实际的project_id用于保存
+                    actual_project = get_project_by_name(db, project_name)
+                    actual_project_id = actual_project.id if actual_project else project_id
+                    project_name_for_save = project_name
+                else:
+                    current_session = get_current_session(db, project_id=project_id)
+                    if not current_session:
+                        current_session = create_new_session(db, project_id=project_id)
+                    actual_project_id = project_id
+                    # 获取项目名称
+                    actual_project = get_project(db, project_id=project_id)
+                    project_name_for_save = actual_project.name if actual_project else None
+                
+                # 保存用户消息
+                save_message(
+                    db=db,
+                    project_id=actual_project_id,
+                    session_id=current_session.id,
+                    role="user",
+                    content=problem,
+                    extra_data={"files": files, "project_context": project_context, "project_name": project_name_for_save, "stream_session_id": session_id}
+                )
+                
+                # 将数据库会话信息添加到流式会话数据中，用于后续保存AI回复
+                db_session_id = current_session.id
+                
+                print(f"💾 用户消息已保存到数据库: {project_name_for_save or actual_project_id}")
+            except Exception as save_error:
+                print(f"⚠️ 保存用户消息到数据库失败: {save_error}")
+                # 不影响正常响应，只记录错误
+        
+        # 🔧 确保总是设置数据库字段到session_data中
+        session_data['db_session_id'] = db_session_id
+        session_data['actual_project_id'] = actual_project_id
+        session_data['project_name'] = project_name_for_save
+        
+        print(f"🔍 Session_data设置完成: db_session_id={db_session_id}, actual_project_id={actual_project_id}, project_name={project_name_for_save}")
+        
+        active_sessions[session_id] = session_data
         print(f"🆔 创建流式会话: {session_id}")
         
         return StreamStartResponse(
@@ -459,6 +718,10 @@ async def stream_thoughts(session_id: str):
         session_data = active_sessions[session_id]
         print(f"🌊 开始流式思考: {session_id}")
         
+        # 🆕 清理旧的思考队列数据，避免发送上一个会话的残留数据
+        print("🧹 清理队列中的旧数据...")
+        clear_thought_queue()
+        
         # 检查必要组件
         if not deepseek_client or not tool_registry:
             async def error_stream():
@@ -481,7 +744,7 @@ async def stream_thoughts(session_id: str):
         agent = EnhancedReActAgent(
             deepseek_client=deepseek_client,
             tool_registry=tool_registry,
-            max_iterations=10,
+            max_iterations=5,  # 🔧 减少最大迭代次数，避免无限循环
             verbose=True  # 保持terminal输出
         )
         
@@ -489,63 +752,35 @@ async def stream_thoughts(session_id: str):
         full_problem = session_data['problem']
         if session_data['files']:
             file_info = "上传的文件:\n" + "\n".join([f"- {f.get('name', 'unknown')}: {f.get('path', 'unknown path')}" for f in session_data['files']])
-            full_problem = f"{full_problem}\n\n{file_info}"
+            full_problem += f"\n\n{file_info}"
         
-        # 🌊 使用 ThoughtLogger 的流式思考生成器
         async def thought_stream():
+            """异步生成思考流"""
+            data_sent_count = 0
+            final_result = None
+            
             try:
-                # 清空旧的思考队列
-                clear_thought_queue()
-                
-                # 启动 ThoughtLogger 拦截输出
+                # 设置思考记录器
                 setup_thought_logger()
                 
-                # 发送开始信号
-                start_data = {
-                    "type": "start",
-                    "message": "开始实时思考..."
-                }
-                yield f"data: {json.dumps(start_data, ensure_ascii=False)}\n\n"
+                # 获取会话数据
+                session_data = active_sessions.get(session_id, {})
+                problem = session_data.get('problem', '未知问题')
+                print(f"🌊 Agent开始处理问题: {problem[:100]}...")
                 
-                # 在线程池中运行Agent求解，避免阻塞事件循环
+                # 使用线程池执行同步的Agent方法
                 import asyncio
                 import concurrent.futures
+                import time  # 确保time在正确位置导入
                 
                 # 使用线程池执行Agent，避免阻塞主事件循环
-                loop = asyncio.get_event_loop()
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    # 提交Agent任务到线程池
-                    agent_future = executor.submit(agent.solve, full_problem)
+                    future = executor.submit(agent._react_loop, full_problem)
                     
-                    # 实时监听思考数据
-                    agent_completed = False
-                    final_result = None
-                    data_sent_count = 0
-                    
-                    while not agent_completed:
-                        # 检查Agent是否完成
-                        if agent_future.done():
-                            agent_completed = True
-                            try:
-                                final_result = agent_future.result()
-                                print(f"🎯 Agent执行完成，结果: {final_result[:50]}...")
-                                # 🔍 添加完整性验证信息
-                                print(f"📊 Final Result完整信息:")
-                                print(f"   - 总长度: {len(final_result)} 字符")
-                                newline_char = '\n'
-                                print(f"   - 行数: {len(final_result.split(newline_char))} 行")
-                                print(f"   - 开头50字符: {final_result[:50]}")
-                                print(f"   - 结尾50字符: {final_result[-50:]}")
-                            except Exception as e:
-                                final_result = None
-                                error_data = {
-                                    "type": "error",
-                                    "message": f"Agent执行错误: {str(e)}"
-                                }
-                                yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
-                        
-                        # 实时获取思考数据并立即发送
+                    # 在Agent运行期间实时获取思考数据
+                    while not future.done():
                         thought_data = await get_thought_data()
+                        
                         if thought_data:
                             data_sent_count += 1
                             print(f"📤 实时发送数据 {data_sent_count}: {thought_data['type']}")
@@ -553,6 +788,10 @@ async def stream_thoughts(session_id: str):
                         
                         # 短暂休眠避免CPU占用过高
                         await asyncio.sleep(0.02)  # 减少延迟，提高响应性
+                
+                    # 获取Agent的最终结果
+                    final_result = future.result()
+                    print(f"🎯 Agent完成，最终结果长度: {len(final_result) if final_result else 0}")
                 
                 # Agent完成后，处理队列中可能的剩余数据
                 print("🔄 Agent完成，检查剩余数据...")
@@ -569,41 +808,118 @@ async def stream_thoughts(session_id: str):
                 
                 # 发送最终完成信号
                 if final_result:
-                    # 🔍 验证发送前的数据完整性
-                    print(f"📤 准备发送Final Result给前端:")
-                    print(f"   - 发送长度: {len(final_result)} 字符")
-                    newline_char = '\n'
-                    print(f"   - 发送行数: {len(final_result.split(newline_char))} 行")
-                    
-                    final_data = {
-                        "type": "complete",
-                        "message": "思考完成",
-                        "final_result": final_result,  # 直接使用结果，因为现在是字符串
-                        "data_sent_total": data_sent_count + remaining_count
-                    }
-                    
-                    # 🔍 验证JSON序列化后的大小
-                    json_data = json.dumps(final_data, ensure_ascii=False)
-                    print(f"   - JSON大小: {len(json_data)} 字符")
-                    print(f"   - JSON中final_result长度: {len(final_data['final_result'])} 字符")
-                    
-                    yield f"data: {json_data}\n\n"
-                    
-                # 完成后清理会话
+                    # 🔍 验证final_result是否为有效的Final Answer
+                    if final_result and len(final_result.strip()) > 0:
+                        print(f"📤 准备发送Final Result给前端:")
+                        print(f"   - 发送长度: {len(final_result)} 字符")
+                        print(f"   - 内容预览: {final_result[:100]}...")
+                        
+                        final_data = {
+                            "type": "final_answer",
+                            "content": final_result,
+                            "timestamp": time.time()
+                        }
+                        yield f"data: {json.dumps(final_data, ensure_ascii=False)}\n\n"
+                        
+                        # 🆕 保存AI回复到数据库
+                        try:
+                            print(f"💾 开始保存AI回复到数据库...")
+                            current_session_data = active_sessions.get(session_id, {})
+                            project_context = current_session_data.get('project_context', {})
+                            project_id = project_context.get('project_id')
+                            project_name = project_context.get('project_name')
+                            
+                            if project_id or project_name:
+                                from database.database import SessionLocal
+                                from database.crud import get_current_session, save_message, get_project_by_name
+                                
+                                db = SessionLocal()
+                                try:
+                                    # 获取当前会话
+                                    if project_name:
+                                        current_session = get_current_session(db, project_name=project_name)
+                                        # 获取实际的project_id
+                                        actual_project = get_project_by_name(db, project_name)
+                                        actual_project_id = actual_project.id if actual_project else project_id
+                                    else:
+                                        current_session = get_current_session(db, project_id=project_id)
+                                        actual_project_id = project_id
+                                    
+                                    if current_session:
+                                        # 保存AI回复
+                                        save_message(
+                                            db=db,
+                                            project_id=actual_project_id,
+                                            session_id=current_session.id,
+                                            role="assistant",
+                                            content=final_result,
+                                            thinking_data={"iterations": data_sent_count},  # 保存思考轮数
+                                            extra_data={
+                                                "stream_session_id": session_id,
+                                                "project_name": project_name,
+                                                "response_type": "stream_final"
+                                            }
+                                        )
+                                        
+                                        print(f"💾 AI回复已保存到数据库: {project_name or actual_project_id}")
+                                    else:
+                                        print(f"⚠️ 未找到当前会话，无法保存AI回复")
+                                        
+                                except Exception as db_save_error:
+                                    print(f"⚠️ 保存AI回复到数据库失败: {db_save_error}")
+                                    import traceback
+                                    traceback.print_exc()
+                                finally:
+                                    db.close()
+                            else:
+                                print(f"⚠️ 没有项目信息，跳过数据库保存")
+                                
+                        except Exception as save_error:
+                            print(f"⚠️ 保存AI回复过程出错: {save_error}")
+                    else:
+                        print("⚠️ Final Result为空，跳过发送")
+                        empty_result_data = {
+                            "type": "warning",
+                            "content": "AI未能生成有效回复",
+                            "timestamp": time.time()
+                        }
+                        yield f"data: {json.dumps(empty_result_data, ensure_ascii=False)}\n\n"
+                
+                # 🔚 发送流结束信号
+                end_stream_data = {
+                    "type": "stream_end",
+                    "message": f"对话完成，共处理 {data_sent_count} 条思考数据",
+                    "timestamp": time.time()
+                }
+                yield f"data: {json.dumps(end_stream_data, ensure_ascii=False)}\n\n"
+                
+                print(f"🎯 流式对话完成: {session_id}")
+                print(f"   - 总数据条数: {data_sent_count}")
+                print(f"   - 最终回复长度: {len(final_result) if final_result else 0}")
+                
+                # 清理会话数据
                 if session_id in active_sessions:
                     del active_sessions[session_id]
-                    print(f"🧹 清理会话: {session_id}")
+                    print(f"🧹 清理会话数据: {session_id}")
                     
             except Exception as e:
-                print(f"❌ 流式思考异常: {e}")
+                # 确保time模块可用
+                import time
+                print(f"❌ 流式思考过程异常: {e}")
+                import traceback
+                traceback.print_exc()
+                
                 error_data = {
                     "type": "error",
-                    "message": f"思考过程发生错误: {str(e)}"
+                    "message": f"处理过程发生错误: {str(e)}",
+                    "timestamp": time.time()
                 }
                 yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+            
             finally:
                 # 确保恢复原始 stdout
                 restore_stdout()
+                print(f"🧹 已恢复stdout: {session_id}")
         
         return StreamingResponse(
             thought_stream(),
@@ -638,6 +954,282 @@ async def root():
         ]
     }
 
+# ======================== 🆕 项目管理API ========================
+
+@app.post("/api/projects", response_model=ProjectResponse)
+async def create_project_api(request: ProjectCreateRequest, db: Session = Depends(get_db)):
+    """创建新项目"""
+    try:
+        project = create_project(
+            db=db,
+            name=request.name,
+            project_type=request.type,
+            description=request.description
+        )
+        return ProjectResponse(success=True, project=project.to_dict())
+    except Exception as e:
+        print(f"❌ 创建项目失败: {e}")
+        return ProjectResponse(success=False, error=str(e))
+
+@app.get("/api/projects", response_model=ProjectListResponse)
+async def get_projects_api(status: Optional[str] = None, db: Session = Depends(get_db)):
+    """获取项目列表"""
+    try:
+        projects = get_all_projects(db, status=status)
+        return ProjectListResponse(
+            success=True,
+            projects=[p.to_dict() for p in projects],
+            total=len(projects)
+        )
+    except Exception as e:
+        print(f"❌ 获取项目列表失败: {e}")
+        return ProjectListResponse(success=False, projects=[], total=0)
+
+@app.get("/api/projects/{project_identifier}/summary", response_model=ProjectSummaryResponse)
+async def get_project_summary_api(project_identifier: str, by_name: bool = False, db: Session = Depends(get_db)):
+    """获取项目概要信息 - 用于快速加载，支持按ID或名称查询"""
+    try:
+        if by_name:
+            summary = get_project_summary(db, project_name=project_identifier)
+        else:
+            summary = get_project_summary(db, project_id=project_identifier)
+        
+        if not summary:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        return ProjectSummaryResponse(success=True, data=summary)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 获取项目概要失败: {e}")
+        return ProjectSummaryResponse(success=False, data=None)
+
+@app.get("/api/projects/{project_identifier}/files")
+async def get_project_files_api(
+    project_identifier: str, 
+    by_name: bool = False, 
+    db: Session = Depends(get_db)
+):
+    """获取项目的所有文件列表 - 支持按ID或名称查询"""
+    try:
+        # 🆕 支持按项目名称或ID查询
+        if by_name:
+            files = get_project_files(db, project_name=project_identifier)
+        else:
+            files = get_project_files(db, project_id=project_identifier)
+        
+        return {
+            "success": True,
+            "files": [f.to_dict() for f in files],
+            "total": len(files)
+        }
+    except Exception as e:
+        print(f"❌ 获取项目文件列表失败: {e}")
+        return {
+            "success": False,
+            "files": [],
+            "total": 0,
+            "error": str(e)
+        }
+
+
+@app.get("/api/projects/{project_identifier}/current-session", response_model=SessionMessagesResponse)
+async def get_current_session_api(project_identifier: str, by_name: bool = False, limit: int = 20, db: Session = Depends(get_db)):
+    """获取项目当前会话的最近消息 - 支持按ID或名称查询"""
+    try:
+        # 🆕 支持按项目名称或ID查询
+        if by_name:
+            current_session = get_current_session(db, project_name=project_identifier)
+            if not current_session:
+                current_session = create_new_session(db, project_name=project_identifier)
+            files = get_project_files(db, project_name=project_identifier, session_id=current_session.id)
+        else:
+            current_session = get_current_session(db, project_id=project_identifier)
+            if not current_session:
+                current_session = create_new_session(db, project_id=project_identifier)
+            files = get_project_files(db, project_id=project_identifier, session_id=current_session.id)
+        
+        messages, total = get_session_messages(db, current_session.id, limit=limit)
+        
+        return SessionMessagesResponse(
+            success=True,
+            messages=[{
+                **msg.to_dict(),
+                "session_info": current_session.to_dict(),
+                "files": [f.to_dict() for f in files]
+            } for msg in messages],
+            total=total,
+            page=1
+        )
+    except Exception as e:
+        print(f"❌ 获取当前会话失败: {e}")
+        return SessionMessagesResponse(success=False, messages=[], total=0)
+
+@app.get("/api/sessions/{session_id}/messages")
+async def get_session_messages_api(
+    session_id: str, 
+    page: int = 1, 
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    """获取会话消息（分页）"""
+    try:
+        messages, total = get_session_messages(db, session_id, page, limit)
+        return {
+            "success": True,
+            "messages": [msg.to_dict() for msg in messages],
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "has_more": (page * limit) < total
+        }
+    except Exception as e:
+        print(f"❌ 获取会话消息失败: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.delete("/api/projects/{project_identifier}")
+async def delete_project_api(project_identifier: str, by_name: bool = False, db: Session = Depends(get_db)):
+    """删除项目 - 支持按ID或名称删除"""
+    try:
+        # 🆕 支持按项目名称或ID删除
+        if by_name:
+            project = get_project(db, project_name=project_identifier)
+        else:
+            project = get_project(db, project_id=project_identifier)
+        
+        if not project:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        
+        project_name = project.name
+        success = delete_project(db, project.id)
+        
+        if success:
+            return {"success": True, "message": f"项目 '{project_name}' 已成功删除"}
+        else:
+            return {"success": False, "error": "删除项目失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 删除项目失败: {e}")
+        return {"success": False, "error": str(e)}
+
+# 🆕 保存消息请求模型
+class SaveMessageRequest(BaseModel):
+    session_id: Optional[str] = None
+    role: str  # user/assistant/system
+    content: str
+    thinking_data: Optional[Dict] = None
+    extra_data: Optional[Dict] = None
+
+class SaveMessageResponse(BaseModel):
+    success: bool
+    message_id: Optional[str] = None
+    error: Optional[str] = None
+
+@app.post("/api/projects/by-name/{project_name}/messages", response_model=SaveMessageResponse)
+async def save_message_by_name_api(project_name: str, body: SaveMessageRequest, db: Session = Depends(get_db)):
+    """保存消息到指定项目（按项目名称）"""
+    try:
+        print(f"💾 保存消息API调用: 项目={project_name}, 角色={body.role}, 内容长度={len(body.content)}")
+        
+        # 获取项目
+        project = get_project_by_name(db, project_name)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        
+        # 获取或创建当前会话
+        current_session = get_current_session(db, project_name=project_name)
+        if not current_session:
+            current_session = create_new_session(db, project_name=project_name)
+        
+        # 如果指定了session_id，使用指定的会话
+        session_id = body.session_id or current_session.id
+        
+        # 保存消息
+        message = save_message(
+            db=db,
+            project_id=project.id,
+            session_id=session_id,
+            role=body.role,
+            content=body.content,
+            thinking_data=body.thinking_data,
+            extra_data=body.extra_data
+        )
+        
+        print(f"✅ 消息保存成功: ID={message.id}, 项目={project_name}")
+        
+        return SaveMessageResponse(
+            success=True,
+            message_id=message.id
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 保存消息失败: {e}")
+        return SaveMessageResponse(
+            success=False,
+            error=str(e)
+        )
+
+@app.post("/api/projects/{project_id}/messages", response_model=SaveMessageResponse)
+async def save_message_by_id_api(project_id: str, body: SaveMessageRequest, db: Session = Depends(get_db)):
+    """保存消息到指定项目（按项目ID）"""
+    try:
+        print(f"💾 保存消息API调用: 项目ID={project_id}, 角色={body.role}, 内容长度={len(body.content)}")
+        
+        # 获取项目
+        project = get_project(db, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"项目ID '{project_id}' 不存在")
+        
+        # 获取或创建当前会话
+        current_session = get_current_session(db, project_id=project_id)
+        if not current_session:
+            current_session = create_new_session(db, project_id=project_id)
+        
+        # 如果指定了session_id，使用指定的会话
+        session_id = body.session_id or current_session.id
+        
+        # 保存消息
+        message = save_message(
+            db=db,
+            project_id=project.id,
+            session_id=session_id,
+            role=body.role,
+            content=body.content,
+            thinking_data=body.thinking_data,
+            extra_data=body.extra_data
+        )
+        
+        print(f"✅ 消息保存成功: ID={message.id}, 项目={project.name}")
+        
+        return SaveMessageResponse(
+            success=True,
+            message_id=message.id
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 保存消息失败: {e}")
+        return SaveMessageResponse(
+            success=False,
+            error=str(e)
+        )
+
+@app.get("/api/database/health")
+async def database_health_api():
+    """数据库健康检查"""
+    try:
+        health = check_database_health()
+        return health
+    except Exception as e:
+        return {
+            "status": "error",
+            "connection": False,
+            "error": str(e)
+        }
+
 if __name__ == "__main__":
     import uvicorn
     
@@ -653,7 +1245,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=8001,
         reload=True,
         reload_dirs=["./"],
         timeout_keep_alive=300,  # 保持连接5分钟

@@ -5,12 +5,12 @@ const fs = require('fs');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 // 🆕 环境配置 - ReactAgent后端地址
-const REACT_AGENT_URL = process.env.REACT_AGENT_URL || 'http://localhost:8000';
+const REACT_AGENT_URL = process.env.REACT_AGENT_URL || 'http://localhost:8001';
 
 console.log(`🔗 ReactAgent后端地址: ${REACT_AGENT_URL}`);
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3003;
 
 // 创建上传目录
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -76,8 +76,8 @@ app.use(express.json({ limit: '50mb' }));
 // 静态文件服务
 app.use(express.static(__dirname));
 
-// 文件上传API - 参考原来的frontend实现
-app.post('/api/upload', upload.single('file'), (req, res) => {
+// 文件上传API - 转发到后端MinIO服务
+app.post('/api/upload', upload.single('file'), async (req, res) => {
     try {
         if (!req.file) {
             throw new Error('No file uploaded');
@@ -85,7 +85,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
 
         const file = req.file;
 
-        // 正确处理UTF-8文件名 - 参考原来的实现
+        // 正确处理UTF-8文件名
         const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
         const localFilePath = file.path;
 
@@ -93,49 +93,85 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
         const projectId = req.headers['x-project-id'];
         const projectName = req.headers['x-project-name'] ? decodeURIComponent(req.headers['x-project-name']) : null;
 
-        let projectInfo = null;
-        if (projectId && projectName) {
-            projectInfo = {
-                id: projectId,
-                name: projectName
-            };
-            console.log(`🏗️ 文件上传包含项目信息(来自请求头): ${projectInfo.name} (${projectInfo.id})`);
-        } else if (req.body.project) {
+        console.log(`📁 接收文件上传: ${originalName} (${file.size} bytes)`);
+        console.log(`🏗️ 项目信息: ID=${projectId}, Name=${projectName}`);
+
+        // 🚀 修复：使用axios代替fetch来正确处理multipart/form-data
+        const axios = require('axios');
+        const FormData = require('form-data');
+        const fs = require('fs');
+
+        // 创建新的FormData，包含文件和项目信息
+        const formData = new FormData();
+        formData.append('file', fs.createReadStream(localFilePath), {
+            filename: originalName,
+            contentType: file.mimetype
+        });
+
+        console.log(`🌐 转发文件上传到后端MinIO API...`);
+
+        // 使用axios转发到后端MinIO API
+        const backendResponse = await axios.post('http://localhost:8001/api/upload', formData, {
+            headers: {
+                // 转发项目信息到后端
+                ...(projectId && { 'X-Project-ID': projectId }),
+                ...(projectName && { 'X-Project-Name': encodeURIComponent(projectName) }),
+                // 让form-data库自动设置正确的Content-Type
+                ...formData.getHeaders()
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            timeout: 30000  // 30秒超时
+        });
+
+        console.log(`📡 后端MinIO API响应状态: ${backendResponse.status}`);
+        console.log(`✅ 后端MinIO上传成功:`, backendResponse.data);
+
+        // 🧹 清理本地临时文件
+        try {
+            fs.unlinkSync(localFilePath);
+            console.log(`🧹 已清理本地临时文件: ${localFilePath}`);
+        } catch (cleanupError) {
+            console.warn(`⚠️ 清理临时文件失败: ${cleanupError.message}`);
+        }
+
+        // 返回后端的响应，但添加一些前端特有的信息
+        const responseData = {
+            ...backendResponse.data,
+            // 保持与原前端API兼容的字段
+            localPath: null, // 不再保存到本地
+            fileName: originalName,
+            fileSize: file.size,
+            mimetype: file.mimetype,
+            // 标记为已转发到MinIO
+            uploadedToMinio: true,
+            forwardedToBackend: true
+        };
+
+        res.json(responseData);
+
+    } catch (error) {
+        console.error('❌ 文件上传处理失败:', error);
+
+        // 检查是否是axios错误
+        if (error.response) {
+            console.error('后端错误响应:', error.response.status, error.response.data);
+        }
+
+        // 尝试清理可能的临时文件
+        if (req.file && req.file.path) {
             try {
-                projectInfo = JSON.parse(req.body.project);
-                console.log(`🏗️ 文件上传包含项目信息(来自body): ${projectInfo.name}`);
-            } catch (e) {
-                console.warn('⚠️ 项目信息解析失败:', e);
+                require('fs').unlinkSync(req.file.path);
+            } catch (cleanupError) {
+                console.warn('⚠️ 清理失败的上传文件时出错:', cleanupError);
             }
         }
 
-        console.log(`📁 上传文件到本地存储 - ${originalName} (${file.size} bytes)`);
-        console.log(`📄 解码后的原始文件名: ${originalName}`);
-        console.log(`📄 保存到本地路径: ${localFilePath}`);
-
-        const fileInfo = {
-            success: true,
-            message: '文件上传到本地存储成功',
-            originalName: originalName, // 发送正确解码的文件名
-            filePath: localFilePath,
-            localPath: localFilePath,
-            reactAgentPath: localFilePath, // ReactAgent使用的路径
-            size: file.size,
-            mimetype: file.mimetype,
-            fileName: path.basename(localFilePath),
-            project: projectInfo, // 包含项目信息
-            // 🆕 直接包含项目ID信息，方便前端使用
-            project_id: projectInfo?.id || null,
-            project_name: projectInfo?.name || null
-        };
-
-        res.json(fileInfo);
-
-    } catch (error) {
-        console.error('❌ 文件上传错误:', error);
         res.status(500).json({
             success: false,
-            error: '文件上传失败: ' + error.message
+            error: error.message,
+            message: '文件上传失败',
+            details: error.response?.data || null
         });
     }
 });
@@ -203,7 +239,7 @@ app.post('/api/chat', async (req, res) => {
         console.log('发送到ReactAgent:', requestData);
 
         // 直接调用ReactAgent后端的/react_solve端点，并转发项目信息
-        const response = await fetch('http://localhost:8000/react_solve', {
+        const response = await fetch('http://localhost:8001/react_solve', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -289,7 +325,7 @@ app.post('/api/start_stream', async (req, res) => {
         console.log('🌊 转发流式请求到ReactAgent:', requestData);
 
         // 直接调用ReactAgent后端的/start_stream端点，并转发项目信息
-        const response = await fetch('http://localhost:8000/start_stream', {
+        const response = await fetch('http://localhost:8001/start_stream', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -322,7 +358,7 @@ app.post('/api/start_stream', async (req, res) => {
 
 // 🌊 流式思考SSE代理 - 使用http-proxy-middleware
 app.use('/api/stream', createProxyMiddleware({
-    target: 'http://localhost:8000',
+    target: 'http://localhost:8001',
     changeOrigin: true,
     pathRewrite: {
         '^/api/stream': '/stream'
@@ -353,7 +389,7 @@ app.use('/api/stream', createProxyMiddleware({
 // 状态检查API - 直接转发到ReactAgent 服务器
 app.get('/api/status', async (req, res) => {
     try {
-        const response = await fetch('http://localhost:8000/health');
+        const response = await fetch('http://localhost:8001/health');
         if (!response.ok) {
             throw new Error(`ReactAgent服务器不可用: ${response.status}`);
         }
@@ -392,7 +428,32 @@ app.get('/api/tasks/:task_id', async (req, res) => {
         });
 
         if (!response.ok) {
-            throw new Error(`任务状态查询失败: ${response.status}`);
+            // 根据不同的HTTP状态码返回相应的错误
+            if (response.status === 404) {
+                console.log(`📋 任务${taskId}不存在 (404)`);
+                return res.status(404).json({
+                    success: false,
+                    error: `任务 ${taskId} 不存在或已过期`,
+                    task_id: taskId,
+                    status: 'not_found'
+                });
+            } else if (response.status === 500) {
+                console.error(`❌ 文档生成服务内部错误 (500)`);
+                return res.status(500).json({
+                    success: false,
+                    error: '文档生成服务暂时不可用',
+                    task_id: taskId,
+                    status: 'service_error'
+                });
+            } else {
+                console.error(`❌ 任务状态查询失败: ${response.status}`);
+                return res.status(response.status).json({
+                    success: false,
+                    error: `任务状态查询失败: ${response.status}`,
+                    task_id: taskId,
+                    status: 'query_error'
+                });
+            }
         }
 
         const taskData = await response.json();
@@ -412,10 +473,11 @@ app.get('/api/tasks/:task_id', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('任务状态查询错误:', error);
+        console.error('任务状态查询异常:', error);
         res.status(500).json({
             success: false,
-            error: error.message || '无法查询任务状态'
+            error: error.message || '无法查询任务状态',
+            status: 'exception_error'
         });
     }
 });
@@ -423,7 +485,7 @@ app.get('/api/tasks/:task_id', async (req, res) => {
 // 工具列表API
 app.get('/api/tools', async (req, res) => {
     try {
-        const response = await fetch('http://localhost:8000/tools');
+        const response = await fetch('http://localhost:8001/tools');
         if (!response.ok) {
             throw new Error(`获取工具列表失败: ${response.status}`);
         }
@@ -438,6 +500,212 @@ app.get('/api/tools', async (req, res) => {
         res.status(500).json({
             success: false,
             error: error.message || '无法获取工具列表'
+        });
+    }
+});
+
+// 🆕 项目管理API代理
+app.get('/api/projects', async (req, res) => {
+    try {
+        console.log('📋 代理项目列表请求');
+        const response = await fetch('http://localhost:8001/api/projects');
+
+        if (!response.ok) {
+            throw new Error(`获取项目列表失败: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log(`✅ 成功获取 ${data.projects?.length || 0} 个项目`);
+        res.json(data);
+    } catch (error) {
+        console.error('❌ 获取项目列表错误:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || '无法获取项目列表'
+        });
+    }
+});
+
+app.post('/api/projects', async (req, res) => {
+    try {
+        console.log('📋 代理创建项目请求:', req.body);
+        const response = await fetch('http://localhost:8001/api/projects', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(req.body)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`创建项目失败: ${response.status} - ${errorText}`);
+        }
+
+        const data = await response.json();
+        console.log(`✅ 成功创建项目: ${req.body.name}`);
+        res.json(data);
+    } catch (error) {
+        console.error('❌ 创建项目错误:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || '无法创建项目'
+        });
+    }
+});
+
+app.get('/api/projects/:identifier/summary', async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        const { by_name } = req.query;
+        console.log(`📋 代理项目概要请求: ${identifier} (by_name: ${by_name})`);
+
+        const url = `http://localhost:8001/api/projects/${encodeURIComponent(identifier)}/summary?by_name=${by_name || 'false'}`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`获取项目概要失败: ${response.status}`);
+        }
+
+        const data = await response.json();
+        res.json(data);
+    } catch (error) {
+        console.error('❌ 获取项目概要错误:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.get('/api/projects/:identifier/current-session', async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        const { by_name, limit } = req.query;
+        console.log(`📋 代理当前会话请求: ${identifier} (by_name: ${by_name})`);
+
+        const url = `http://localhost:8001/api/projects/${encodeURIComponent(identifier)}/current-session?by_name=${by_name || 'false'}&limit=${limit || '20'}`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`获取当前会话失败: ${response.status}`);
+        }
+
+        const data = await response.json();
+        res.json(data);
+    } catch (error) {
+        console.error('❌ 获取当前会话错误:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// 🆕 保存/更新消息到数据库API
+app.post('/api/projects/:identifier/messages', async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        const { session_id, role, content, extra_data, by_name } = req.body;
+
+        console.log(`💾 代理保存消息请求: 项目=${identifier}, 角色=${role}, 内容长度=${content?.length || 0}`);
+
+        // 构建后端API URL - 使用适当的项目标识符
+        const baseUrl = by_name ?
+            `http://localhost:8001/api/projects/by-name/${encodeURIComponent(identifier)}/messages` :
+            `http://localhost:8001/api/projects/${encodeURIComponent(identifier)}/messages`;
+
+        const response = await fetch(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                session_id,
+                role,
+                content,
+                extra_data
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`保存消息失败: ${response.status} - ${errorText}`);
+        }
+
+        const data = await response.json();
+        console.log(`✅ 消息保存成功: 消息ID=${data.message_id || 'unknown'}`);
+
+        res.json({
+            success: true,
+            message: '消息保存成功',
+            data
+        });
+
+    } catch (error) {
+        console.error('❌ 保存消息错误:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// 🆕 删除项目API代理
+app.delete('/api/projects/:identifier', async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        const { by_name } = req.query;
+        console.log(`🗑️ 代理删除项目请求: ${identifier} (by_name: ${by_name})`);
+
+        const url = `http://localhost:8001/api/projects/${encodeURIComponent(identifier)}?by_name=${by_name || 'false'}`;
+        const response = await fetch(url, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`删除项目失败: ${response.status} - ${errorText}`);
+        }
+
+        const data = await response.json();
+        console.log(`✅ 成功删除项目: ${identifier}`);
+        res.json(data);
+    } catch (error) {
+        console.error('❌ 删除项目错误:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || '无法删除项目'
+        });
+    }
+});
+
+// 🆕 获取项目文件列表的API代理
+app.get('/api/projects/:identifier/files', async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        const { by_name } = req.query;
+
+        const url = `http://localhost:8001/api/projects/${encodeURIComponent(identifier)}/files?by_name=${by_name || 'false'}`;
+        console.log(`🔗 代理文件列表请求到后端: ${url}`);
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`获取文件列表失败: ${response.status} - ${errorText}`);
+        }
+
+        const data = await response.json();
+        console.log(`✅ 成功获取项目文件列表: ${data.total || 0}个文件`);
+        res.json(data);
+    } catch (error) {
+        console.error('❌ 获取文件列表错误:', error);
+        res.status(500).json({
+            success: false,
+            files: [],
+            total: 0,
+            error: error.message || '无法获取文件列表'
         });
     }
 });

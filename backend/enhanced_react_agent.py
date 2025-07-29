@@ -499,6 +499,22 @@ class EnhancedReActAgent:
             # 🔄 使用智能重试执行工具
             result = await self.execute_with_retry(action, action_input, max_retries=2)
             
+            # 🎯 检查工具返回结果中是否包含agent_message（异步版本）
+            try:
+                import json
+                if isinstance(result, str):
+                    result_dict = json.loads(result)
+                    if result_dict.get("success") and result_dict.get("agent_message"):
+                        agent_message = result_dict["agent_message"]
+                        print(f"🎯 工具返回了agent_message，将在下一轮作为Final Answer: {len(agent_message)} 字符")
+                        print(f"📝 agent_message内容: {agent_message[:200]}...")
+                        
+                        # 在结果中添加特殊标记，提示Agent应该使用这个消息作为Final Answer
+                        result_dict["_should_use_agent_message"] = True
+                        result = json.dumps(result_dict, ensure_ascii=False, indent=2)
+            except Exception as e:
+                print(f"⚠️ 处理agent_message时出错: {e}")
+            
             # 🧠 短期记忆更新 - 处理PDF解析结果
             if project_id and action == "pdf_parser":
                 try:
@@ -506,13 +522,17 @@ class EnhancedReActAgent:
                     if result_data.get("success", False):
                         # 尝试从参数中提取文件名
                         filename = None
-                        if 'minio_url' in params:
-                            # 从minio://bucket/file.pdf中提取文件名
-                            minio_url = params['minio_url']
-                            filename = minio_url.split('/')[-1] if '/' in minio_url else minio_url
-                            # 移除minio://前缀如果存在
-                            if filename.startswith('minio://'):
-                                filename = filename[8:].split('/')[-1]
+                        try:
+                            params = json.loads(action_input)
+                            if 'minio_url' in params:
+                                # 从minio://bucket/file.pdf中提取文件名
+                                minio_url = params['minio_url']
+                                filename = minio_url.split('/')[-1] if '/' in minio_url else minio_url
+                                # 移除minio://前缀如果存在
+                                if filename.startswith('minio://'):
+                                    filename = filename[8:].split('/')[-1]
+                        except (json.JSONDecodeError, KeyError):
+                            filename = "unknown_file"
                         
                         self._handle_pdf_parse_result(project_id, result_data, filename)
                 except json.JSONDecodeError:
@@ -565,7 +585,22 @@ class EnhancedReActAgent:
             except Exception as e:
                 return f"工具执行失败: {str(e)}"
             
-
+            # 🎯 检查工具返回结果中是否包含agent_message
+            # 如果包含，说明这是一个需要立即返回给用户的消息（如文档生成任务提交）
+            try:
+                import json
+                if isinstance(result, str):
+                    result_dict = json.loads(result)
+                    if result_dict.get("success") and result_dict.get("agent_message"):
+                        agent_message = result_dict["agent_message"]
+                        print(f"🎯 工具返回了agent_message，将在下一轮作为Final Answer: {len(agent_message)} 字符")
+                        print(f"📝 agent_message内容: {agent_message[:200]}...")
+                        
+                        # 在结果中添加特殊标记，提示Agent应该使用这个消息作为Final Answer
+                        result_dict["_should_use_agent_message"] = True
+                        result = json.dumps(result_dict, ensure_ascii=False, indent=2)
+            except Exception as e:
+                print(f"⚠️ 处理agent_message时出错: {e}")
             
             return result
                 
@@ -709,6 +744,26 @@ class EnhancedReActAgent:
                 observation = self._execute_action_sync(action, action_input_or_final or "")
                 print(f"Observation: {observation}")
                 
+                # 🎯 检查工具响应是否包含应该立即使用的agent_message
+                try:
+                    import json
+                    if isinstance(observation, str) and observation.strip().startswith('{'):
+                        observation_dict = json.loads(observation)
+                        if observation_dict.get("_should_use_agent_message") and observation_dict.get("agent_message"):
+                            agent_message = observation_dict["agent_message"]
+                            print(f"🎯 检测到agent_message，立即作为Final Answer返回")
+                            print(f"Final Answer: {agent_message}")
+                            
+                            # 保存到记忆
+                            if self.memory_manager:
+                                self.memory_manager.add_session(problem, agent_message, conversation)
+                                if self.verbose:
+                                    print("💾 已保存到记忆")
+                            
+                            return agent_message
+                except Exception as e:
+                    print(f"⚠️ 检查agent_message时出错: {e}")
+                
                 # 添加到对话历史
                 conversation.append({"role": "user", "content": f"Observation: {observation}"})
             else:
@@ -835,6 +890,35 @@ class EnhancedReActAgent:
                 # 执行工具
                 observation = await self._execute_action(action, action_input_or_final or "")
                 print(f"Observation: {observation}")
+                
+                # 🎯 检查工具响应是否包含应该立即使用的agent_message
+                try:
+                    import json
+                    if isinstance(observation, str) and observation.strip().startswith('{'):
+                        observation_dict = json.loads(observation)
+                        if observation_dict.get("_should_use_agent_message") and observation_dict.get("agent_message"):
+                            agent_message = observation_dict["agent_message"]
+                            print(f"🎯 检测到agent_message，立即作为Final Answer返回")
+                            print(f"Final Answer: {agent_message}")
+                            
+                            step_info["final_answer"] = agent_message
+                            step_info["observation"] = observation
+                            thinking_process.append(step_info)
+                            
+                            # 保存到记忆
+                            if self.memory_manager:
+                                self.memory_manager.add_session(problem, agent_message, conversation)
+                                if self.verbose:
+                                    print("💾 已保存到记忆")
+                            
+                            return AgentResult(
+                                response=agent_message,
+                                thinking_process=thinking_process,
+                                total_iterations=iteration + 1,
+                                success=True
+                            )
+                except Exception as e:
+                    print(f"⚠️ 检查agent_message时出错: {e}")
                 
                 step_info["observation"] = observation
                 thinking_process.append(step_info)

@@ -8,6 +8,10 @@ import asyncio
 import aiohttp
 from typing import Dict, Any, List, Optional, Callable
 from abc import ABC, abstractmethod
+# �� 导入数据库模块用于查询文件
+from database.database import SessionLocal
+from database.crud import get_project_files, get_project_by_name
+from database import models
 
 class BaseTool(ABC):
     """工具基类"""
@@ -39,6 +43,53 @@ class APITool(BaseTool):
         self.api_url = api_url
         self.project_context = project_context or {}
     
+    async def _get_latest_pdf_from_database(self, project_name: str) -> Optional[str]:
+        """
+        从数据库查询项目的最新PDF文件MinIO路径
+        
+        Args:
+            project_name: 项目名称
+            
+        Returns:
+            MinIO路径或None
+        """
+        if not project_name:
+            return None
+            
+        db = SessionLocal()
+        try:
+            print(f"🔍 查询项目'{project_name}'的PDF文件...")
+            
+            # 获取项目文件列表
+            files = get_project_files(db, project_name=project_name)
+            
+            if not files:
+                print(f"⚠️ 项目'{project_name}'中没有找到任何文件")
+                return None
+            
+            # 筛选PDF文件并按上传时间排序（最新的在前）
+            pdf_files = [
+                f for f in files 
+                if f.original_name.lower().endswith('.pdf') 
+                and f.minio_path 
+                and f.status == 'ready'
+            ]
+            
+            if not pdf_files:
+                print(f"⚠️ 项目'{project_name}'中没有找到已准备好的PDF文件")
+                return None
+                
+            # 返回最新的PDF文件路径
+            latest_pdf = pdf_files[0]  # 已按上传时间降序排列
+            print(f"✅ 找到最新PDF文件: {latest_pdf.original_name} -> {latest_pdf.minio_path}")
+            return latest_pdf.minio_path
+            
+        except Exception as e:
+            print(f"❌ 查询数据库文件失败: {e}")
+            return None
+        finally:
+            db.close()
+    
     async def _execute_pdf_parser_api(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
         专门处理 pdf_parser API 的MinIO格式调用
@@ -54,6 +105,21 @@ class APITool(BaseTool):
             
             # 🔍 获取文件路径（minio_url参数）
             minio_url = payload.get("minio_url")
+            
+            # 🆕 如果没有提供minio_url或者是unknown_bucket，尝试从数据库自动查找
+            if not minio_url or "unknown_bucket" in minio_url:
+                print(f"🔍 minio_url缺失或无效: {minio_url}，尝试从数据库查询...")
+                minio_url = await self._get_latest_pdf_from_database(project_name)
+                if minio_url:
+                    print(f"✅ 从数据库找到PDF文件: {minio_url}")
+                else:
+                    return {
+                        "success": False,
+                        "error_type": "no_files_found",
+                        "error": "项目中没有找到已上传的PDF文件",
+                        "fix_suggestion": "请先上传PDF文件再进行解析",
+                        "retry_possible": False
+                    }
             
             if not minio_url:
                 return {
@@ -489,10 +555,10 @@ class ToolRegistry:
         
         # 🏗️ 自动注入项目上下文参数
         if self.project_context and self.project_context.get('project_name'):
-            # 为RAG工具自动注入project_name参数
-            if name == 'rag_tool' and 'project_name' not in kwargs:
+            # 为需要project_name的工具自动注入参数
+            if name in ['rag_tool', 'pdf_parser'] and 'project_name' not in kwargs:
                 kwargs['project_name'] = self.project_context['project_name']
-                print(f"🏗️ 自动注入项目参数: project_name={self.project_context['project_name']}")
+                print(f"🏗️ 自动注入项目参数到{name}: project_name={self.project_context['project_name']}")
             
             # 为其他工具也可以添加项目上下文（如果需要）
             # if name == 'document_generator':
@@ -559,14 +625,5 @@ def create_core_tool_registry(project_context: Optional[Dict[str, Any]] = None) 
         api_url="http://43.139.19.144:8002/generate_document"  # 调用外部文档生成服务
     )
     
-    # 🔄 内部工具：项目状态检查 (移除，改为文件存储)
-    # registry.register_api_tool(
-    #     name="check_project_state",
-    #     description="检查当前项目的解析状态和文档数量",
-    #     parameters={
-    #         "project_id": {"type": "string", "description": "项目ID（可选，默认使用当前项目）", "default": None}
-    #     },
-    #     api_url="internal://check_project_state"
-    # )
 
     return registry 

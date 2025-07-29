@@ -144,12 +144,16 @@ class ThoughtLogger:
                     # 如果不在事件循环中，直接放入
                     self.queue.put_nowait(data)
             except RuntimeError:
-                # 如果没有事件循环，尝试创建任务
+                # 如果没有事件循环，尝试同步方式放入队列
                 try:
-                    asyncio.create_task(self.queue.put(data))
-                except RuntimeError:
-                    # 最后的兜底：直接用 put_nowait
+                    # 使用同步方式处理，避免协程警告
+                    import warnings
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", RuntimeWarning)
                     self.queue.put_nowait(data)
+                except Exception as e:
+                    # 如果队列操作完全失败，至少记录一下
+                    self._original_stdout.write(f"⚠️ 队列操作失败: {e}, 数据类型: {data.get('type', 'unknown')}\n")
                     
             self._original_stdout.write(f"📤 已推送到队列: {data['type']}\n")
             

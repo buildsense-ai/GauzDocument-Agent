@@ -4,7 +4,18 @@ let currentChatId = null;
 let chatHistory = [];
 let currentFiles = [];
 let currentProject = null; // 当前选中的项目信息
+
+// 🆕 数据库相关状态
+let isHistoryLoaded = false;
+let totalMessagesInDb = 0;
+let currentPage = 1;
 let isUploading = false; // 是否正在上传文件到MinIO
+let uploadStartTime = null; // 记录上传开始时间
+let uploadPhase = null; // 记录上传阶段: 'request', 'waiting', 'processing'
+
+// 🔄 任务轮询相关状态
+let pollingIntervals = new Map(); // 存储所有活动的轮询任务
+
 let userSettings = {
     theme: 'light',
     showThinking: true,
@@ -14,7 +25,7 @@ let userSettings = {
 // API基础URL - 指向当前前端服务器（会代理到后端）
 const API_BASE = '/api';
 
-// 通用API请求函数，自动添加项目ID到请求头
+// 🆕 通用API请求函数，自动添加项目ID和项目名称到请求头
 async function apiRequest(url, options = {}) {
     const headers = {
         ...options.headers
@@ -25,11 +36,18 @@ async function apiRequest(url, options = {}) {
         headers['Content-Type'] = 'application/json';
     }
 
-    // 如果有当前项目，添加项目ID到请求头
-    if (currentProject && currentProject.id) {
-        headers['X-Project-ID'] = currentProject.id;
-        headers['X-Project-Name'] = encodeURIComponent(currentProject.name); // 编码中文字符
-        console.log('📤 API请求添加项目ID:', currentProject.id, 'URL:', url);
+    // 🆕 如果有当前项目，添加项目ID和名称到请求头
+    if (currentProject && (currentProject.id || currentProject.name)) {
+        if (currentProject.id) {
+            headers['X-Project-ID'] = currentProject.id;
+        }
+        if (currentProject.name) {
+            headers['X-Project-Name'] = encodeURIComponent(currentProject.name); // 编码中文字符
+        }
+        console.log('📤 API请求添加项目信息:', {
+            id: currentProject.id,
+            name: currentProject.name
+        }, 'URL:', url);
     }
 
     return fetch(url, {
@@ -40,22 +58,193 @@ async function apiRequest(url, options = {}) {
 
 // 初始化应用
 document.addEventListener('DOMContentLoaded', function () {
-    console.log('🚀 前端应用启动');
+    console.log('🚀 页面加载完成，开始初始化...');
 
-    // 初始化项目信息
+    // 初始化项目环境
     initializeProject();
 
-    // 初始化设置
+    // 初始化用户设置
     initializeSettings();
 
-    // 初始化事件监听
+    // 初始化事件监听器（重要：绑定按钮点击事件）
     initializeEventListeners();
 
     // 检查连接状态
     checkConnectionStatus();
 
-    // 🔧 移除全局的loadChatHistory调用，现在在initializeProject中处理
-    // loadChatHistory(); // ❌ 已删除
+    // 检查marked.js状态（延迟检查以确保加载完成）
+    setTimeout(() => {
+        checkMarkedJSStatus();
+
+        // 如果marked.js仍未加载，显示友好提示
+        if (typeof marked === 'undefined' && !window.markedLoadFailed) {
+            console.warn('🕐 marked.js仍在加载中，将在加载完成后自动启用');
+        }
+    }, 1000);
+
+    // 🔧 添加全局测试函数
+    window.testImageRendering = function (markdownText) {
+        console.log('🧪 测试图片渲染功能');
+        console.log('📝 输入内容:', markdownText);
+
+        let htmlContent;
+        if (typeof marked !== 'undefined' && !window.markedLoadFailed) {
+            try {
+                // 适配不同版本的API
+                if (typeof marked.parse === 'function') {
+                    htmlContent = marked.parse(markdownText);
+                } else if (typeof marked === 'function') {
+                    htmlContent = marked(markdownText);
+                } else {
+                    throw new Error('无法识别的marked.js API');
+                }
+                console.log('✅ marked.js渲染结果:', htmlContent);
+            } catch (e) {
+                console.warn('⚠️ marked.js失败，使用备用方法:', e);
+                htmlContent = renderMarkdownFallback(markdownText);
+            }
+        } else {
+            console.log('💼 使用备用渲染器');
+            htmlContent = renderMarkdownFallback(markdownText);
+        }
+
+        htmlContent = enhanceImages(htmlContent);
+        console.log('🎨 最终渲染结果:', htmlContent);
+
+        // 创建临时div显示结果
+        const testDiv = document.createElement('div');
+        testDiv.innerHTML = htmlContent;
+        testDiv.style.cssText = 'border: 2px solid #007bff; padding: 15px; margin: 10px; background: #f8f9fa; border-radius: 8px;';
+        document.body.appendChild(testDiv);
+        console.log('📺 测试结果已添加到页面底部');
+
+        setTimeout(() => {
+            if (confirm('移除测试元素？')) {
+                testDiv.remove();
+            }
+        }, 5000);
+    };
+    console.log('🔧 图片渲染测试函数已添加到 window.testImageRendering()');
+
+    // 🔧 添加marked.js诊断函数
+    window.diagnoseMarkedJS = function () {
+        console.log('🩺 开始诊断marked.js状态');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+        // 基础检查
+        console.log('1️⃣ 基础检查:');
+        console.log('   typeof marked:', typeof marked);
+        console.log('   window.markedLoadFailed:', window.markedLoadFailed);
+
+        if (typeof marked !== 'undefined') {
+            console.log('2️⃣ API兼容性检查:');
+            console.log('   marked()函数:', typeof marked === 'function');
+            console.log('   marked.parse():', typeof marked.parse === 'function');
+            console.log('   marked.setOptions():', typeof marked.setOptions === 'function');
+            console.log('   marked.use():', typeof marked.use === 'function');
+
+            console.log('3️⃣ 测试渲染:');
+            try {
+                const testMd = '**测试** *图片* ![test](https://via.placeholder.com/100x50.png?text=TEST)';
+                let result;
+
+                if (typeof marked.parse === 'function') {
+                    result = marked.parse(testMd);
+                    console.log('   ✅ marked.parse() 成功');
+                } else if (typeof marked === 'function') {
+                    result = marked(testMd);
+                    console.log('   ✅ marked() 成功');
+                } else {
+                    console.log('   ❌ 无可用的渲染方法');
+                    return;
+                }
+
+                console.log('   渲染结果:', result);
+                console.log('   包含图片标签:', result.includes('<img'));
+            } catch (e) {
+                console.log('   ❌ 渲染测试失败:', e);
+            }
+        } else {
+            console.log('❌ marked.js 未加载或加载失败');
+        }
+
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('💡 如果marked.js有问题，可以运行 resetMarkedJS() 重新加载');
+    };
+
+    // 🔧 添加重置函数
+    window.resetMarkedJS = function () {
+        console.log('🔄 尝试重新加载marked.js');
+        window.markedLoadFailed = false;
+        delete window.marked;
+        loadMarkedFromBackup();
+    };
+
+    console.log('🔧 诊断函数已添加: window.diagnoseMarkedJS() 和 window.resetMarkedJS()');
+
+    // 🆕 添加持久化诊断函数
+    window.diagnosePersistence = function () {
+        console.log('🔍 开始诊断持久化状态');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+        console.log('1️⃣ 项目信息:');
+        console.log('   currentProject:', currentProject);
+        console.log('   localStorage项目:', localStorage.getItem('currentProject'));
+
+        console.log('2️⃣ 聊天历史:');
+        console.log('   内存中历史数量:', chatHistory.length);
+        console.log('   数据库加载状态:', isHistoryLoaded);
+
+        console.log('3️⃣ 文件列表:');
+        console.log('   内存中文件数量:', currentFiles.length);
+        if (currentProject) {
+            const key = `projectFiles_${currentProject.id}`;
+            const saved = localStorage.getItem(key);
+            console.log('   localStorage文件数量:', saved ? JSON.parse(saved).length : 0);
+        }
+
+        console.log('4️⃣ 数据源状态:');
+        console.log('   - 项目信息来源: URL参数 + localStorage + 数据库验证');
+        console.log('   - 聊天历史来源: 数据库 (API) -> localStorage备用');
+        console.log('   - 文件列表来源: 数据库 (API) -> localStorage备用');
+
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    };
+
+    // 🆕 添加数据重新加载函数
+    window.reloadProjectData = function () {
+        console.log('🔄 重新加载项目数据...');
+        if (currentProject) {
+            Promise.all([
+                loadChatHistory(),
+                loadProjectFiles()
+            ]).then(() => {
+                console.log('✅ 项目数据重新加载完成');
+                showNotification('项目数据已重新加载', 'success');
+            }).catch(error => {
+                console.error('❌ 重新加载失败:', error);
+                showNotification('重新加载失败', 'error');
+            });
+        } else {
+            console.warn('⚠️ 没有当前项目，无法重新加载');
+        }
+    };
+
+    console.log('🔧 持久化诊断函数已添加: window.diagnosePersistence() 和 window.reloadProjectData()');
+
+    // 启动上传状态监控（每5秒检查一次）
+    setInterval(checkUploadTimeout, 5000);
+    console.log('🔍 上传状态监控已启动');
+
+    // 添加快捷键重置上传状态 (Ctrl+Shift+R)
+    document.addEventListener('keydown', function (e) {
+        if (e.ctrlKey && e.shiftKey && e.key === 'R') {
+            e.preventDefault();
+            resetUploadStatus();
+        }
+    });
+
+    console.log('✅ 初始化完成');
 });
 
 // 初始化项目信息
@@ -63,21 +252,14 @@ function initializeProject() {
     // 首先从localStorage中读取项目信息
     const savedProject = localStorage.getItem('currentProject');
 
-    // 从URL参数中读取项目信息
+    // 🆕 从URL参数中读取项目信息 - 支持项目名称优先
     const urlParams = new URLSearchParams(window.location.search);
     const projectId = urlParams.get('project');
     const projectName = urlParams.get('projectName');
     const projectType = urlParams.get('projectType');
 
-    // 优先使用URL参数，如果没有则使用localStorage
-    if (projectId && projectName) {
-        // 验证项目ID格式
-        if (!validateProjectId(projectId)) {
-            console.error('❌ 无效的项目ID格式:', projectId);
-            showNotification('项目ID格式无效', 'error');
-            return;
-        }
-
+    // 🆕 优先使用项目名称作为主要标识
+    if (projectName) {
         currentProject = {
             id: projectId,
             name: projectName,
@@ -87,7 +269,7 @@ function initializeProject() {
         // 将项目信息保存到localStorage
         localStorage.setItem('currentProject', JSON.stringify(currentProject));
 
-        console.log('🏗️ 从URL初始化项目:', currentProject);
+        console.log('🏗️ 从URL初始化项目（优先使用项目名称）:', currentProject);
         showNotification(`已锁定项目: ${currentProject.name}`, 'success');
     } else if (savedProject) {
         try {
@@ -119,16 +301,28 @@ function initializeProject() {
         // 更新页面标题
         document.title = `${currentProject.name} - 工程AI助手`;
 
-        // 🆕 加载项目专属的对话历史和文件列表
-        loadChatHistory();
-        loadProjectFiles();
+        // 🆕 加载项目专属的对话历史和文件列表 (异步加载)
+        Promise.all([
+            loadChatHistory(),
+            loadProjectFiles()
+        ]).then(() => {
+            console.log(`🎯 项目${currentProject.name}的所有数据加载完成`);
+        }).catch(error => {
+            console.error('❌ 项目数据加载出现问题:', error);
+        });
 
         console.log(`🔄 项目${currentProject.name}数据加载完成`);
     } else {
         console.log('📋 未指定项目，使用通用模式');
-        // 在通用模式下仍然加载数据
-        loadChatHistory();
-        loadProjectFiles();
+        // 在通用模式下仍然加载数据 (异步加载)
+        Promise.all([
+            loadChatHistory(),
+            loadProjectFiles()
+        ]).then(() => {
+            console.log('🎯 通用模式数据加载完成');
+        }).catch(error => {
+            console.error('❌ 通用模式数据加载出现问题:', error);
+        });
     }
 }
 
@@ -227,6 +421,12 @@ function initializeEventListeners() {
 // 设置拖拽上传
 function setupDragAndDrop() {
     const uploadZone = document.getElementById('uploadZone');
+
+    // 检查元素是否存在
+    if (!uploadZone) {
+        console.log('⚠️ uploadZone元素不存在，跳过拖拽上传设置');
+        return;
+    }
 
     uploadZone.addEventListener('dragover', function (e) {
         e.preventDefault();
@@ -327,6 +527,8 @@ async function handleTempFileUpload(event) {
 
     // 🚀 关键修改：设置上传状态，触发漏斗
     isUploading = true;
+    uploadStartTime = Date.now();
+    uploadPhase = 'request';
     updateSendButton(); // 立即更新发送按钮状态
 
     try {
@@ -340,12 +542,16 @@ async function handleTempFileUpload(event) {
             }
 
             // 🌐 使用后端MinIO上传API
-            const response = await apiRequest(`http://localhost:8000/api/upload`, {
+            console.log('📤 开始网络请求（临时文件）:', file.name);
+            uploadPhase = 'waiting';
+            const response = await apiRequest(`/api/upload`, {
                 method: 'POST',
                 body: formData,
                 headers: {} // 清空Content-Type，让浏览器自动设置multipart/form-data
             });
 
+            console.log('📥 收到响应，开始解析JSON');
+            uploadPhase = 'processing';
             const data = await response.json();
 
             if (data.success) {
@@ -355,11 +561,14 @@ async function handleTempFileUpload(event) {
                     reactAgentPath: data.minio_path,  // 🌐 AI agent使用MinIO路径
                     type: data.mimetype,
                     size: data.size,
-                    isTemporary: true
+                    isTemporary: true,
+                    verified: data.verified || false,  // 验证状态
+                    verificationDetails: data.verification_details  // 验证详情
                 };
 
                 currentFiles.push(fileInfo);
                 console.log('📎 临时文件已添加到currentFiles:', fileInfo.name, '当前文件数量:', currentFiles.length);
+                console.log('🔍 文件验证状态:', fileInfo.verified, fileInfo.verificationDetails);
                 updateCurrentFilesUI();
 
                 // 更新项目统计 - 文件数量
@@ -368,7 +577,12 @@ async function handleTempFileUpload(event) {
                 // 添加到左侧文件树
                 addFileToTree(fileInfo);
 
-                showNotification(`文件 "${fileInfo.name}" 上传成功`, 'success');
+                // 🆕 保存更新后的文件列表
+                saveProjectFiles();
+
+                // 🆕 显示验证状态的通知
+                const verifyStatus = data.verified ? '✅ 已验证' : '⚠️ 未验证';
+                showNotification(`文件 "${fileInfo.name}" 上传成功 ${verifyStatus}`, 'success');
             } else {
                 showNotification(`文件 "${file.name}" 上传失败`, 'error');
             }
@@ -383,7 +597,10 @@ async function handleTempFileUpload(event) {
 
         // 🚀 关键修改：重置上传状态，恢复发送按钮
         isUploading = false;
+        uploadStartTime = null;
+        uploadPhase = null;
         updateSendButton(); // 更新发送按钮状态
+        console.log('🔄 临时文件上传完成，isUploading 重置为 false');
     }
 }
 
@@ -399,6 +616,8 @@ async function handlePersistentFileUpload(event) {
 
     // 🚀 关键修改：设置上传状态，触发漏斗
     isUploading = true;
+    uploadStartTime = Date.now();
+    uploadPhase = 'request';
     updateSendButton(); // 立即更新发送按钮状态
 
     try {
@@ -412,12 +631,16 @@ async function handlePersistentFileUpload(event) {
             }
 
             // 🌐 使用后端MinIO上传API
-            const response = await apiRequest(`http://localhost:8000/api/upload`, {
+            console.log('📤 开始网络请求（持久化文件）:', file.name);
+            uploadPhase = 'waiting';
+            const response = await apiRequest(`/api/upload`, {
                 method: 'POST',
                 body: formData,
                 headers: {} // 清空Content-Type，让浏览器自动设置multipart/form-data
             });
 
+            console.log('📥 收到响应，开始解析JSON');
+            uploadPhase = 'processing';
             const data = await response.json();
 
             if (data.success) {
@@ -428,12 +651,15 @@ async function handlePersistentFileUpload(event) {
                     reactAgentPath: data.minio_path,  // 🌐 AI agent使用MinIO路径
                     type: data.mimetype,
                     size: data.size,
-                    isTemporary: false  // 标记为持久化文件
+                    isTemporary: false,  // 标记为持久化文件
+                    verified: data.verified || false,  // 验证状态
+                    verificationDetails: data.verification_details  // 验证详情
                 };
 
                 // 添加到当前对话文件列表
                 currentFiles.push(fileInfo);
                 console.log('📎 文件已添加到currentFiles:', fileInfo.name, '当前文件数量:', currentFiles.length);
+                console.log('🔍 文件验证状态:', fileInfo.verified, fileInfo.verificationDetails);
                 updateCurrentFilesUI();
 
                 // 更新项目统计 - 文件数量
@@ -442,7 +668,9 @@ async function handlePersistentFileUpload(event) {
                 // 添加到左侧文件树
                 addFileToTree(fileInfo);
 
-                showNotification(`文件 "${fileInfo.name}" 已上传并添加到对话中`, 'success');
+                // 🆕 显示验证状态的通知
+                const verifyStatus = data.verified ? '✅ 已验证' : '⚠️ 未验证';
+                showNotification(`文件 "${fileInfo.name}" 已上传并添加到对话中 ${verifyStatus}`, 'success');
 
                 // 添加到知识库的逻辑
                 await addToKnowledgeBase(data);
@@ -467,7 +695,10 @@ async function handlePersistentFileUpload(event) {
 
         // 🚀 关键修改：重置上传状态，恢复发送按钮
         isUploading = false;
+        uploadStartTime = null;
+        uploadPhase = null;
         updateSendButton(); // 更新发送按钮状态
+        console.log('🔄 持久化文件上传完成，isUploading 重置为 false');
     }
 }
 
@@ -574,6 +805,37 @@ function clearAllCurrentFiles() {
     showNotification(`已清空 ${fileCount} 个文件`, 'success');
 }
 
+// 重置上传状态（保险措施）
+function resetUploadStatus() {
+    if (isUploading) {
+        console.warn('⚠️ 强制重置上传状态');
+        console.warn('重置前状态：isUploading =', isUploading, '阶段：', uploadPhase);
+        isUploading = false;
+        uploadStartTime = null;
+        uploadPhase = null;
+        updateSendButton();
+        showNotification('上传状态已重置', 'info');
+    }
+}
+
+// 检查上传超时（增强版）
+function checkUploadTimeout() {
+    if (isUploading && uploadStartTime) {
+        const elapsed = Date.now() - uploadStartTime;
+
+        // 30秒警告，60秒强制重置
+        if (elapsed > 60000) { // 60秒超时
+            console.error('❌ 上传严重超时（60秒），强制重置状态');
+            console.error('可能原因：网络请求卡住、后端API无响应、或前端异常');
+            resetUploadStatus();
+            showNotification('上传严重超时，已强制重置', 'error');
+        } else if (elapsed > 30000) { // 30秒警告
+            console.warn('⚠️ 上传时间较长（30秒+），请检查网络连接');
+            console.warn('当前状态：isUploading =', isUploading, '阶段：', uploadPhase, '已用时：', Math.round(elapsed / 1000), '秒');
+        }
+    }
+}
+
 // 更新发送按钮状态
 function updateSendButton() {
     const inputField = document.getElementById('inputField');
@@ -582,15 +844,20 @@ function updateSendButton() {
     const hasText = inputField.value.trim().length > 0;
     const hasFiles = currentFiles.length > 0;
 
+    // 检查上传超时
+    checkUploadTimeout();
+
     // 🚀 关键修改：在上传期间禁用发送按钮并显示漏斗
     if (isUploading) {
         sendButton.disabled = true;
         sendButton.innerHTML = '⏳'; // 漏斗状态
         sendButton.title = '正在上传文件到MinIO...';
+        console.log('🔒 发送按钮锁定中，isUploading =', isUploading);
     } else {
         sendButton.disabled = !hasText && !hasFiles;
         sendButton.innerHTML = '发送'; // 正常状态
         sendButton.title = '发送消息';
+        console.log('🔓 发送按钮已解锁，isUploading =', isUploading);
     }
 }
 
@@ -821,9 +1088,55 @@ async function handleStreamingThoughts(requestData, thinkingProcess) {
                             break;
 
                         case 'final_answer':
-                            // 🔧 不在流式中处理final_answer，交给后续的API调用
-                            console.log('📋 流式中收到final_answer，但将通过API调用获取完整结果');
-                            break;
+                            // 🔧 修复：正确处理final_answer，显示AI的最终回答
+                            console.log('📋 流式中收到final_answer，准备显示完整结果');
+                            console.log('📥 Final Answer详细信息:');
+                            console.log('   - 接收长度:', data.content.length, '字符');
+                            console.log('   - 接收行数:', data.content.split('\n').length, '行');
+                            console.log('   - 开头100字符:', data.content.substring(0, 100));
+
+                            // 完成思考过程显示
+                            completeThinking(thinkingProcess);
+
+                            // 🆕 检测是否包含task_id，如果是文档生成任务，启动轮询 - 使用简化的检测方式
+                            const finalAnswer = data.content;
+                            console.log('🔍 检查Final Answer是否包含任务ID...');
+                            console.log('📝 Final Answer完整内容:', finalAnswer);
+
+                            const taskIdMatch = finalAnswer.match(/任务ID[：:]\s*([a-zA-Z0-9_-]+)/);
+                            if (taskIdMatch) {
+                                const taskId = taskIdMatch[1];
+                                console.log('🎯 检测到文档生成任务ID:', taskId);
+
+                                // 显示初始响应
+                                addMessage('ai', finalAnswer);
+
+                                // 开始轮询任务状态
+                                startTaskPolling(taskId, finalAnswer);
+                            } else {
+                                console.log('❌ 未检测到任务ID，将作为普通响应处理');
+                                // 普通响应，直接显示
+                                addMessage('ai', finalAnswer);
+                            }
+
+                            // 关闭事件源
+                            eventSource.close();
+                            resolve(finalAnswer);
+                            return;
+
+                        case 'stream_end':
+                            // 🔧 处理流结束信号
+                            console.log('🎉 流式对话结束:', data.message);
+                            completeThinking(thinkingProcess);
+                            eventSource.close();
+
+                            // 如果没有收到final_answer，显示默认消息
+                            if (!eventSource.finalAnswerReceived) {
+                                console.warn('⚠️ 没有收到final_answer，显示默认消息');
+                                addMessage('ai', '✅ 处理完成，但未获得最终结果');
+                                resolve('处理完成');
+                            }
+                            return;
 
                         case 'complete':
                         case 'timeout':
@@ -842,10 +1155,11 @@ async function handleStreamingThoughts(requestData, thinkingProcess) {
                                 console.log('   - 接收行数:', finalAnswer.split('\n').length, '行');
                                 console.log('   - 开头100字符:', finalAnswer.substring(0, 100));
                                 console.log('   - 结尾100字符:', finalAnswer.substring(Math.max(0, finalAnswer.length - 100)));
-                                console.log('   - 是否包含"医灵古庙":', finalAnswer.includes('医灵古庙'));
-                                console.log('   - 是否包含"历史沿革":', finalAnswer.includes('历史沿革'));
 
-                                // 🆕 检测是否包含task_id，如果是文档生成任务，启动轮询
+                                // 🆕 检测是否包含task_id，如果是文档生成任务，启动轮询 - 使用简化的检测方式
+                                console.log('🔍 检查Final Answer是否包含任务ID...');
+                                console.log('📝 Final Answer完整内容:', finalAnswer);
+
                                 const taskIdMatch = finalAnswer.match(/任务ID[：:]\s*([a-zA-Z0-9_-]+)/);
                                 if (taskIdMatch) {
                                     const taskId = taskIdMatch[1];
@@ -859,6 +1173,7 @@ async function handleStreamingThoughts(requestData, thinkingProcess) {
 
                                     resolve(finalAnswer);
                                 } else {
+                                    console.log('❌ 未检测到任务ID，将作为普通响应处理');
                                     // 普通响应，直接显示
                                     addMessage('ai', finalAnswer);
                                     resolve(finalAnswer);
@@ -874,7 +1189,6 @@ async function handleStreamingThoughts(requestData, thinkingProcess) {
                                             console.log('📋 DOM中显示验证:');
                                             console.log('   - DOM文本长度:', content.textContent.length, '字符');
                                             console.log('   - DOM HTML长度:', content.innerHTML.length, '字符');
-                                            console.log('   - DOM是否包含"医灵古庙":', content.textContent.includes('医灵古庙'));
                                         }
                                     }
                                 }, 200);
@@ -950,22 +1264,63 @@ function addMessage(sender, content) {
     const messageContent = document.createElement('div');
     messageContent.className = 'message-content';
 
-    // 🆕 优先使用marked.js，备用简单Markdown渲染
-    if (typeof marked !== 'undefined') {
-        console.log('✅ 使用marked.js渲染消息');
-        messageContent.innerHTML = marked.parse(content);
-    } else {
-        console.log('⚠️ marked.js不可用，使用备用渲染方法');
-        // 备用：增强的简单Markdown渲染，包含链接支持
-        let formattedContent = content
-            .replace(/\n/g, '<br>')
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // 加粗
-            .replace(/\*(.*?)\*/g, '<em>$1</em>')             // 斜体
-            .replace(/---/g, '<hr>')                          // 分隔线
-            .replace(/`(.*?)`/g, '<code>$1</code>')           // 代码
-            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>'); // 链接
+    // 🆕 检测内容是否已经是HTML格式
+    const isAlreadyHtml = content.includes('<p>') || content.includes('<strong>') || content.includes('<a href=');
 
-        messageContent.innerHTML = formattedContent;
+    if (isAlreadyHtml) {
+        console.log('✅ 检测到已渲染的HTML，直接使用');
+        // 直接使用预渲染的HTML内容
+        messageContent.innerHTML = content;
+    } else {
+        // 🆕 优先使用marked.js，备用完整Markdown渲染
+        if (typeof marked !== 'undefined' && !window.markedLoadFailed) {
+            console.log('✅ 使用marked.js渲染消息');
+            try {
+                let htmlContent;
+
+                // 检查API类型并适配
+                if (typeof marked.parse === 'function') {
+                    // 新版API (v4+)
+                    if (marked.setOptions) {
+                        marked.setOptions({
+                            breaks: true,
+                            gfm: true,
+                            headerIds: false,
+                            mangle: false
+                        });
+                    }
+                    htmlContent = marked.parse(content);
+                } else if (typeof marked === 'function') {
+                    // 旧版API兼容
+                    marked.setOptions && marked.setOptions({
+                        breaks: true,
+                        gfm: true,
+                        headerIds: false,
+                        mangle: false
+                    });
+                    htmlContent = marked(content);
+                } else {
+                    throw new Error('无法识别的marked.js API');
+                }
+
+                // 应用图片增强处理
+                htmlContent = enhanceImages(htmlContent);
+                messageContent.innerHTML = htmlContent;
+                console.log('🎨 marked.js渲染完成');
+            } catch (markedError) {
+                console.warn('⚠️ marked.js渲染失败，使用备用方法:', markedError);
+                // 如果marked.js出错，使用备用方法
+                let htmlContent = renderMarkdownFallback(content);
+                htmlContent = enhanceImages(htmlContent);
+                messageContent.innerHTML = htmlContent;
+            }
+        } else {
+            console.log('⚠️ marked.js不可用，使用备用渲染方法');
+            // 🔧 使用完整的备用渲染方法，包含图片处理
+            let htmlContent = renderMarkdownFallback(content);
+            htmlContent = enhanceImages(htmlContent);
+            messageContent.innerHTML = htmlContent;
+        }
     }
 
     // 🆕 处理预览链接，将其转换为可点击的按钮
@@ -1342,7 +1697,7 @@ function clearAllHistory() {
     console.log(`✅ ${projectName}的对话历史清空完成`);
 }
 
-// 保存聊天历史
+// 保存聊天历史 (本地备用)
 function saveChatHistory() {
     if (!currentProject || !currentProject.id) {
         // 如果没有项目信息，保存到通用历史
@@ -1353,38 +1708,205 @@ function saveChatHistory() {
     // 🆕 按项目ID分别保存对话历史
     const projectHistoryKey = `chatHistory_${currentProject.id}`;
     localStorage.setItem(projectHistoryKey, JSON.stringify(chatHistory));
-    console.log(`💾 保存项目${currentProject.name}的对话历史，共${chatHistory.length}条对话`);
+    console.log(`💾 保存项目${currentProject.name}的对话历史到localStorage，共${chatHistory.length}条对话`);
 }
 
-// 加载聊天历史
-function loadChatHistory() {
-    if (!currentProject || !currentProject.id) {
-        // 如果没有项目信息，加载通用历史
-        const saved = localStorage.getItem('chatHistory');
-        if (saved) {
-            chatHistory = JSON.parse(saved);
+// 🆕 从数据库加载聊天历史 (真正的数据库实现)
+async function loadChatHistory() {
+    try {
+        console.log(`📚 从数据库加载对话历史...`);
+
+        let apiUrl;
+        if (currentProject && currentProject.name) {
+            // 有项目时，获取项目特定的历史
+            const projectIdentifier = encodeURIComponent(currentProject.name);
+            apiUrl = `/api/projects/${projectIdentifier}/current-session?by_name=true&limit=20`;
         } else {
+            // 没有项目时，尝试加载通用历史（如果有API支持）
+            console.log('📝 没有项目信息，初始化为空历史');
+            chatHistory = [];
+            updateChatHistoryUI();
+            return;
+        }
+
+        const response = await apiRequest(apiUrl);
+        const result = await response.json();
+
+        if (result.success && result.messages) {
+            // 清空现有聊天历史
+            chatHistory = [];
+            const chatMessages = document.getElementById('chatMessages');
+
+            // 处理消息数据
+            if (result.messages.length > 0) {
+                console.log(`📨 处理${result.messages.length}条数据库消息...`);
+
+                // 显示聊天界面，隐藏欢迎界面
+                if (chatMessages) {
+                    chatMessages.innerHTML = '';
+                    chatMessages.classList.add('show');
+                }
+
+                const welcomePrompts = document.getElementById('welcomePrompts');
+                if (welcomePrompts) {
+                    welcomePrompts.style.display = 'none';
+                }
+
+                // 创建单一对话对象来包含所有消息
+                const sessionInfo = result.messages[0].session_info;
+                const chatTitle = sessionInfo?.title ||
+                    (result.messages.find(m => m.role === 'user')?.content?.substring(0, 30) + '...' || '新对话');
+
+                const chatObject = {
+                    id: sessionInfo?.id || 'current-session',
+                    title: chatTitle,
+                    startTime: new Date(sessionInfo?.created_at || result.messages[0].created_at),
+                    messages: []
+                };
+
+                // 按时间顺序处理消息
+                result.messages.reverse().forEach(msg => {
+                    const messageData = {
+                        id: msg.id,
+                        sender: msg.role, // 映射为switchToChat期望的字段
+                        content: msg.content,
+                        timestamp: new Date(msg.created_at),
+                        thinking_process: msg.thinking_data,
+                        rendered_html: msg.rendered_html,
+                        extra_data: msg.extra_data
+                    };
+
+                    // 添加到对话对象的消息列表
+                    chatObject.messages.push(messageData);
+
+                    // 直接渲染到聊天界面
+                    if (msg.role === 'user') {
+                        addMessage('user', msg.content);
+                    } else if (msg.role === 'assistant') {
+                        let content;
+
+                        // 🆕 检查是否是任务完成消息，如果是，实时渲染
+                        if (msg.extra_data && msg.extra_data.task_result && msg.extra_data.task_id) {
+                            console.log('🎨 发现任务完成消息，实时渲染:', msg.extra_data.task_id);
+
+                            // 从原始数据实时渲染
+                            content = renderTaskCompletionFromResult(msg.extra_data.task_result, msg.extra_data.task_id);
+
+                            console.log('✅ 任务完成消息已重新渲染，包含实时链接');
+                        }
+                        // 🔄 兼容旧版本：检查旧的minio_urls格式
+                        else if (msg.extra_data && msg.extra_data.task_id && msg.extra_data.minio_urls) {
+                            console.log('🔄 重建旧版本文档信息:', msg.extra_data.task_id);
+
+                            // 重建window.taskDocuments，使预览功能可用
+                            window.taskDocuments = window.taskDocuments || {};
+
+                            const taskId = msg.extra_data.task_id;
+                            const finalDocUrl = msg.extra_data.minio_urls.final_document;
+
+                            if (finalDocUrl) {
+                                // 从URL提取文件名
+                                const urlParts = finalDocUrl.split('/');
+                                const fileName = urlParts[urlParts.length - 1] || '完整版文档';
+
+                                window.taskDocuments[taskId] = {
+                                    url: finalDocUrl,
+                                    name: fileName
+                                };
+
+                                console.log('✅ 旧版本文档信息已重建:', taskId, fileName);
+                            }
+
+                            // 使用预渲染的HTML或原始内容
+                            content = msg.rendered_html || msg.content;
+                        }
+                        else {
+                            // 普通消息，使用预渲染的HTML或原始内容
+                            content = msg.rendered_html || msg.content;
+                        }
+
+                        addMessage('assistant', content);
+                    }
+                });
+
+                // 将对话对象添加到历史记录
+                chatHistory.push(chatObject);
+                currentChatId = chatObject.id;
+
+                chatStarted = true;
+                console.log(`✅ 成功从数据库加载${result.messages.length}条历史消息`);
+
+                // 获取当前会话的文件列表
+                if (result.messages[0] && result.messages[0].files) {
+                    const dbFiles = result.messages[0].files;
+                    if (dbFiles.length > 0) {
+                        console.log(`📁 从数据库加载${dbFiles.length}个文件记录`);
+                        // 转换数据库文件记录为前端格式
+                        currentFiles = dbFiles.map(file => ({
+                            name: file.display_name || file.original_name,
+                            path: file.minio_path,
+                            reactAgentPath: file.minio_path,
+                            type: file.mime_type,
+                            size: file.file_size,
+                            isTemporary: false,
+                            verified: file.status === 'ready',
+                            dbId: file.id // 保存数据库ID
+                        }));
+                        updateCurrentFilesUI();
+                        updateFileTreeUI();
+                    }
+                }
+            } else {
+                console.log(`📝 项目${currentProject ? currentProject.name : '当前'}暂无对话历史`);
+                // 显示欢迎界面
+                const welcomePrompts = document.getElementById('welcomePrompts');
+                if (welcomePrompts) {
+                    welcomePrompts.style.display = 'block';
+                }
+            }
+
+            isHistoryLoaded = true;
+            totalMessagesInDb = result.total || 0;
+        } else {
+            throw new Error(result.error || '加载历史消息失败');
+        }
+
+    } catch (error) {
+        console.error('❌ 从数据库加载对话历史失败:', error);
+        console.error('错误详情:', error.message);
+
+        // 降级到localStorage备用方案
+        console.log('🔄 尝试从localStorage加载备用历史...');
+        try {
+            const fallbackKey = currentProject ? `chatHistory_${currentProject.id}` : 'chatHistory';
+            const savedHistory = localStorage.getItem(fallbackKey);
+            if (savedHistory) {
+                chatHistory = JSON.parse(savedHistory);
+                console.log(`📚 从localStorage恢复${chatHistory.length}条历史记录`);
+                // 重新渲染历史消息
+                if (chatHistory.length > 0) {
+                    const chatMessages = document.getElementById('chatMessages');
+                    if (chatMessages) {
+                        chatMessages.innerHTML = '';
+                        chatMessages.classList.add('show');
+                    }
+                    chatHistory.forEach(msg => {
+                        addMessage(msg.role || msg.sender, msg.content);
+                    });
+                    chatStarted = true;
+                }
+            } else {
+                chatHistory = [];
+            }
+        } catch (fallbackError) {
+            console.error('❌ localStorage备用方案也失败:', fallbackError);
             chatHistory = [];
         }
-    } else {
-        // 🆕 按项目ID加载对应的对话历史
-        const projectHistoryKey = `chatHistory_${currentProject.id}`;
-        const saved = localStorage.getItem(projectHistoryKey);
-        if (saved) {
-            chatHistory = JSON.parse(saved);
-            console.log(`📚 加载项目${currentProject.name}的对话历史，共${chatHistory.length}条对话`);
-        } else {
-            chatHistory = [];
-            console.log(`📝 项目${currentProject.name}暂无对话历史，初始化为空`);
-        }
+
+        showNotification('从数据库加载历史失败，已切换到本地备用数据', 'warning');
     }
 
     updateChatHistoryUI();
-
-    // 重要：加载历史记录后，确保没有设置当前对话ID
-    // 这样用户必须明确选择一个对话或新建对话
-    currentChatId = null;
-    chatStarted = false;
 }
 
 // 打开设置面板
@@ -1778,16 +2300,17 @@ function handleDownload(url, filename) {
 }
 
 // 🔄 任务状态轮询功能
-let pollingIntervals = new Map(); // 存储所有活动的轮询任务
-
 async function startTaskPolling(taskId, originalMessage) {
     console.log(`🔄 开始轮询任务 ${taskId}`);
+    console.log(`📊 当前活跃轮询任务数量: ${pollingIntervals.size}`);
+    console.log(`📋 轮询配置: 每10秒查询一次，最多30分钟`);
 
     let pollCount = 0;
     const maxPolls = 180; // 最多轮询30分钟 (180 * 10s)
 
     // 如果已经在轮询这个任务，先清除
     if (pollingIntervals.has(taskId)) {
+        console.log(`⚠️ 任务${taskId}已在轮询中，先清除旧轮询`);
         clearInterval(pollingIntervals.get(taskId));
     }
 
@@ -1795,18 +2318,56 @@ async function startTaskPolling(taskId, originalMessage) {
     const pollInterval = setInterval(async () => {
         pollCount++;
         console.log(`📋 第${pollCount}次查询任务${taskId}状态...`);
+        console.log(`🌐 请求URL: ${API_BASE}/tasks/${taskId}`);
 
         try {
             const response = await apiRequest(`${API_BASE}/tasks/${taskId}`);
+            console.log(`📡 API响应状态: ${response.status}`);
 
             if (!response.ok) {
                 console.error(`❌ 查询任务状态失败: ${response.status}`);
 
-                // 如果查询失败次数过多，停止轮询
-                if (pollCount >= 5) {
-                    console.log(`❌ 任务${taskId}查询失败次数过多，停止轮询`);
-                    clearTaskPolling(taskId);
-                    updateTaskMessage(taskId, '⚠️ 任务状态查询失败，请稍后手动检查');
+                try {
+                    const errorData = await response.json();
+                    console.error(`❌ 错误详情:`, errorData);
+
+                    // 根据不同的错误类型处理
+                    if (response.status === 404) {
+                        // 任务不存在，立即停止轮询
+                        console.log(`📋 任务${taskId}不存在，停止轮询`);
+                        clearTaskPolling(taskId);
+                        updateTaskMessage(taskId, `⚠️ 任务不存在或已过期: ${errorData.error || '任务未找到'}`);
+                        return;
+                    } else if (response.status === 500) {
+                        // 服务器内部错误，可以重试但有限制
+                        console.log(`🔄 服务器内部错误，继续重试...`);
+                        if (pollCount >= 10) {
+                            console.log(`❌ 服务器错误重试次数过多，停止轮询`);
+                            clearTaskPolling(taskId);
+                            updateTaskMessage(taskId, `❌ 文档生成服务异常: ${errorData.error || '服务暂时不可用'}`);
+                            return;
+                        }
+                    } else {
+                        // 其他错误，有限重试
+                        console.log(`⚠️ 其他错误 (${response.status})，继续重试...`);
+                        if (pollCount >= 5) {
+                            console.log(`❌ 任务${taskId}查询失败次数过多，停止轮询`);
+                            clearTaskPolling(taskId);
+                            updateTaskMessage(taskId, `⚠️ 任务状态查询失败: ${errorData.error || '请稍后手动检查'}`);
+                            return;
+                        }
+                    }
+                } catch (parseError) {
+                    // 无法解析错误响应，使用原始文本
+                    const errorText = await response.text();
+                    console.error(`❌ 错误详情: ${errorText}`);
+
+                    if (pollCount >= 5) {
+                        console.log(`❌ 任务${taskId}查询失败次数过多，停止轮询`);
+                        clearTaskPolling(taskId);
+                        updateTaskMessage(taskId, '⚠️ 任务状态查询失败，请稍后手动检查');
+                        return;
+                    }
                 }
                 return;
             }
@@ -1814,8 +2375,31 @@ async function startTaskPolling(taskId, originalMessage) {
             const taskData = await response.json();
             console.log(`📊 任务${taskId}状态:`, taskData);
 
-            // 检查任务状态
+            // 检查响应格式和任务状态
+            if (!taskData.success && taskData.error) {
+                console.error(`❌ 任务${taskId}查询失败:`, taskData.error);
+                clearTaskPolling(taskId);
+                updateTaskMessage(taskId, `❌ 任务查询失败: ${taskData.error}`);
+                return;
+            }
+
+            // 检查任务状态 - 根据API文档格式
             const status = taskData.status?.toLowerCase();
+            const progress = taskData.progress || '';
+
+            console.log(`📊 任务${taskId}详细状态:`);
+            console.log(`   - status: ${status}`);
+            console.log(`   - progress: ${progress}`);
+            console.log(`   - result存在: ${!!taskData.result}`);
+            console.log(`   - error: ${taskData.error || 'none'}`);
+
+            // 如果有错误信息，处理错误
+            if (taskData.error && status !== 'completed') {
+                console.error(`❌ 任务${taskId}执行出错:`, taskData.error);
+                clearTaskPolling(taskId);
+                updateTaskMessage(taskId, `❌ 任务执行失败: ${taskData.error}`);
+                return;
+            }
 
             if (status === 'completed' || status === 'done' || status === 'finished' || status === 'success') {
                 console.log(`✅ 任务${taskId}已完成!`);
@@ -1833,7 +2417,25 @@ async function startTaskPolling(taskId, originalMessage) {
             } else {
                 // 任务仍在进行中，更新进度显示
                 console.log(`⏳ 任务${taskId}进行中，状态: ${status}`);
-                updateTaskProgress(taskId, taskData);
+
+                // 根据不同状态提供更详细的进度信息
+                let progressInfo = { status: status };
+                if (progress) {
+                    progressInfo.progress = progress;
+                }
+                if (taskData.updated_at) {
+                    progressInfo.updated_at = taskData.updated_at;
+                }
+
+                updateTaskProgress(taskId, progressInfo);
+
+                // 对于长时间运行的任务，定期输出状态
+                if (pollCount % 6 === 0) { // 每60秒输出一次详细状态
+                    console.log(`📈 任务${taskId}运行状态汇总 (第${pollCount}次查询):`);
+                    console.log(`   - 当前状态: ${status}`);
+                    console.log(`   - 进度信息: ${progress || '无'}`);
+                    console.log(`   - 已轮询: ${Math.floor(pollCount * 10 / 60)}分钟`);
+                }
             }
 
         } catch (error) {
@@ -1948,8 +2550,11 @@ async function handleTaskCompletion(taskId, taskData, originalMessage) {
 
     console.log('📝 完整消息内容:', completionMessage);
 
-    // 更新原始消息
-    updateTaskMessage(taskId, completionMessage);
+    // 🆕 直接保存原始result数据到数据库，不保存渲染后的HTML
+    await saveTaskResultToDatabase(taskId, taskData, completionMessage);
+
+    // 更新前端显示（不保存到数据库）
+    updateTaskMessage(taskId, completionMessage, false);
 
     // 显示通知
     if (Object.keys(minioUrls).length > 0) {
@@ -2044,10 +2649,59 @@ function updateTaskProgress(taskId, taskData) {
     } else {
         const status = taskData.status || 'unknown';
         const progress = taskData.progress || '';
+        const updatedAt = taskData.updated_at;
+
+        // 根据状态选择合适的图标和颜色
+        let statusIcon = '⏳';
+        let statusColor = '#2196f3';
+        let statusText = status;
+
+        switch (status.toLowerCase()) {
+            case 'pending':
+                statusIcon = '📋';
+                statusText = '排队中';
+                break;
+            case 'running':
+            case 'processing':
+                statusIcon = '⚙️';
+                statusText = '处理中';
+                break;
+            case 'generating':
+                statusIcon = '📝';
+                statusText = '生成中';
+                break;
+            case 'finalizing':
+                statusIcon = '🔄';
+                statusText = '完善中';
+                break;
+            default:
+                statusText = status;
+        }
+
+        // 格式化更新时间
+        let timeInfo = '';
+        if (updatedAt) {
+            try {
+                const updateTime = new Date(updatedAt);
+                const now = new Date();
+                const diffSeconds = Math.floor((now - updateTime) / 1000);
+
+                if (diffSeconds < 60) {
+                    timeInfo = `(${diffSeconds}秒前更新)`;
+                } else if (diffSeconds < 3600) {
+                    timeInfo = `(${Math.floor(diffSeconds / 60)}分钟前更新)`;
+                } else {
+                    timeInfo = `(${updateTime.toLocaleTimeString()}更新)`;
+                }
+            } catch (e) {
+                console.warn('时间格式化失败:', e);
+            }
+        }
+
         progressDiv.innerHTML = `
             <div style="display: flex; align-items: center; gap: 8px;">
-                <div class="spinner" style="width: 16px; height: 16px; border: 2px solid #ccc; border-top: 2px solid #2196f3; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-                <span>⏳ 状态: ${status} ${progress ? `(${progress})` : ''}</span>
+                <div class="spinner" style="width: 16px; height: 16px; border: 2px solid #ccc; border-top: 2px solid ${statusColor}; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                <span>${statusIcon} 状态: ${statusText} ${progress ? `- ${progress}` : ''} ${timeInfo}</span>
             </div>
         `;
     }
@@ -2066,7 +2720,7 @@ function updateTaskProgress(taskId, taskData) {
     }
 }
 
-function updateTaskMessage(taskId, newContent) {
+function updateTaskMessage(taskId, newContent, shouldPersist = false) {
     console.log(`🔄 更新任务${taskId}的消息`, newContent);
 
     // 找到包含该task_id的消息
@@ -2125,16 +2779,49 @@ function updateTaskMessage(taskId, newContent) {
             console.log(`📝 准备渲染的完整消息:`, finalMessage);
 
             // 检查是否有marked库
-            if (typeof marked !== 'undefined') {
-                messageContent.innerHTML = marked.parse(finalMessage);
-                console.log(`✅ 使用marked.js渲染消息`);
+            if (typeof marked !== 'undefined' && !window.markedLoadFailed) {
+                try {
+                    let htmlContent;
+
+                    // 检查API类型并适配
+                    if (typeof marked.parse === 'function') {
+                        // 新版API
+                        if (marked.setOptions) {
+                            marked.setOptions({
+                                breaks: true,
+                                gfm: true,
+                                headerIds: false,
+                                mangle: false
+                            });
+                        }
+                        htmlContent = marked.parse(finalMessage);
+                    } else if (typeof marked === 'function') {
+                        // 旧版API兼容
+                        marked.setOptions && marked.setOptions({
+                            breaks: true,
+                            gfm: true,
+                            headerIds: false,
+                            mangle: false
+                        });
+                        htmlContent = marked(finalMessage);
+                    } else {
+                        throw new Error('无法识别的marked.js API');
+                    }
+
+                    htmlContent = enhanceImages(htmlContent);
+                    messageContent.innerHTML = htmlContent;
+                    console.log(`✅ 使用marked.js渲染任务消息`);
+                } catch (markedError) {
+                    console.warn(`⚠️ marked.js渲染失败，使用备用方法:`, markedError);
+                    let htmlContent = renderMarkdownFallback(finalMessage);
+                    htmlContent = enhanceImages(htmlContent);
+                    messageContent.innerHTML = htmlContent;
+                }
             } else {
-                // 备用：手动处理基本的Markdown链接
+                // 🔧 使用完整的备用渲染方法，包含图片处理
                 console.warn(`⚠️ marked库未找到，使用备用渲染方法`);
-                const htmlContent = finalMessage
-                    .replace(/\n/g, '<br>')
-                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+                let htmlContent = renderMarkdownFallback(finalMessage);
+                htmlContent = enhanceImages(htmlContent);
                 messageContent.innerHTML = htmlContent;
             }
 
@@ -2200,7 +2887,214 @@ function updateTaskMessage(taskId, newContent) {
                 console.log(`   链接${index + 1}: ${link.textContent} -> ${link.href}`);
             });
         }, 100);
+
+        // 🆕 持久化更新后的消息到历史记录
+        if (shouldPersist && userSettings.autoSave && currentChatId) {
+            console.log(`💾 开始持久化任务${taskId}的完成消息`);
+            updateMessageInHistory(taskId, taskIdIndex !== -1 ? finalMessage : newContent).catch(error => {
+                console.error(`❌ 持久化消息失败:`, error);
+            });
+        }
     }
+}
+
+// 🆕 更新历史记录中的消息内容并持久化
+async function updateMessageInHistory(taskId, updatedContent) {
+    console.log(`💾 更新历史记录中任务${taskId}的消息`);
+
+    // 找到当前对话记录
+    const currentChat = chatHistory.find(c => c.id === currentChatId);
+    if (!currentChat) {
+        console.warn(`⚠️ 未找到当前对话记录，无法更新历史记录`);
+        return;
+    }
+
+    // 查找包含该taskId的AI消息
+    let messageFound = false;
+    let updatedMessage = null;
+    for (let i = currentChat.messages.length - 1; i >= 0; i--) {
+        const message = currentChat.messages[i];
+        if (message.sender === 'ai' && message.content.includes(taskId)) {
+            console.log(`✅ 找到包含任务ID的AI消息，索引: ${i}`);
+            console.log(`📝 原消息长度: ${message.content.length} 字符`);
+            console.log(`📝 新消息长度: ${updatedContent.length} 字符`);
+
+            // 更新消息内容，保持其他属性不变
+            message.content = updatedContent;
+            message.updatedAt = new Date(); // 添加更新时间标记
+
+            updatedMessage = message;
+            messageFound = true;
+            console.log(`✅ 已更新历史记录中的消息内容`);
+            break;
+        }
+    }
+
+    if (!messageFound) {
+        console.warn(`⚠️ 未在历史记录中找到包含任务ID ${taskId} 的AI消息`);
+        return;
+    }
+
+    // 更新对话历史UI
+    updateChatHistoryUI();
+
+    // 🆕 保存到数据库
+    if (currentProject && currentProject.name) {
+        try {
+            console.log(`💾 保存更新后的消息到数据库...`);
+
+            const response = await apiRequest(`${API_BASE}/projects/${encodeURIComponent(currentProject.name)}/messages`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    role: 'assistant',
+                    content: updatedContent,
+                    extra_data: {
+                        task_id: taskId,
+                        message_type: 'task_completion',
+                        updated_at: new Date().toISOString()
+                    },
+                    by_name: true
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                console.log(`✅ 消息已保存到数据库: 消息ID=${data.message_id}`);
+                showNotification('任务完成信息已保存', 'success');
+            } else {
+                throw new Error(`保存失败: ${response.status}`);
+            }
+        } catch (error) {
+            console.error(`❌ 保存消息到数据库失败:`, error);
+            showNotification('保存消息失败，但本地已更新', 'warning');
+
+            // 备用：保存到localStorage
+            saveChatHistory();
+        }
+    } else {
+        console.warn(`⚠️ 没有项目信息，使用localStorage备用保存`);
+        // 备用：保存到localStorage
+        saveChatHistory();
+    }
+
+    console.log(`💾 任务${taskId}的完成消息已持久化`);
+}
+
+// 🆕 保存原始任务结果到数据库
+async function saveTaskResultToDatabase(taskId, taskData, renderedContent) {
+    console.log(`💾 保存任务${taskId}的原始结果到数据库...`);
+
+    if (!currentProject || !currentProject.name) {
+        console.warn(`⚠️ 没有项目信息，无法保存到数据库`);
+        return;
+    }
+
+    try {
+        // 构建简洁的消息内容（不包含具体链接，因为链接会实时渲染）
+        const simpleContent = '✅ 文档生成完成！\n\n📊 系统已完成文档生成，点击下方链接查看和下载。';
+
+        // 构建包含完整原始数据的extra_data
+        const extraData = {
+            task_id: taskId,
+            message_type: 'task_completion',
+            task_result: taskData.result || {}, // 保存完整的result对象
+            task_status: taskData.status,
+            task_progress: taskData.progress,
+            created_at: taskData.created_at,
+            updated_at: taskData.updated_at,
+            rendered_content: renderedContent, // 保存当前渲染的内容作为备用
+            saved_at: new Date().toISOString()
+        };
+
+        console.log('💾 保存的extra_data:', extraData);
+
+        const response = await apiRequest(`${API_BASE}/projects/${encodeURIComponent(currentProject.name)}/messages`, {
+            method: 'POST',
+            body: JSON.stringify({
+                role: 'assistant',
+                content: simpleContent,
+                extra_data: extraData,
+                by_name: true
+            })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const messageId = data.data?.message_id || data.message_id || 'unknown';
+            console.log(`✅ 任务结果已保存到数据库: 消息ID=${messageId}`);
+            showNotification('文档生成结果已保存', 'success');
+        } else {
+            throw new Error(`保存失败: ${response.status}`);
+        }
+    } catch (error) {
+        console.error(`❌ 保存任务结果到数据库失败:`, error);
+        showNotification('保存失败，但前端已更新', 'warning');
+
+        // 备用：保存到localStorage
+        saveChatHistory();
+    }
+}
+
+// 🆕 从原始任务结果渲染文档完成消息
+function renderTaskCompletionFromResult(taskResult, taskId) {
+    console.log('🎨 从原始结果渲染任务完成消息:', taskResult);
+
+    const files = taskResult.files || {};
+    const minioUrls = taskResult.minio_urls || {};
+    const message = taskResult.message || '';
+
+    // 构建完成消息（与handleTaskCompletion相同的逻辑）
+    let completionMessage = '✅ 文档生成完成！\n\n';
+
+    if (message) {
+        completionMessage += `📝 ${message}\n\n`;
+    }
+
+    // 处理下载链接
+    if (Object.keys(minioUrls).length > 0) {
+        completionMessage += '📥 **下载链接：**\n\n';
+
+        // 🎯 优先显示final_document (最重要的文档)
+        if (minioUrls.final_document) {
+            const finalDocUrl = minioUrls.final_document;
+            const finalDocName = extractDocumentName(finalDocUrl) || '完整版文档';
+            completionMessage += `🎯 **主要文档：**\n`;
+            completionMessage += `- [📄 ${finalDocName}](${finalDocUrl})\n`;
+            completionMessage += `- [📖 预览文档](javascript:void(0)) [点击预览Markdown渲染效果](preview-${taskId})\n\n`;
+            console.log('✅ 添加主要文档链接:', finalDocName, finalDocUrl);
+
+            // 🆕 保存final_document URL以供预览使用
+            window.taskDocuments = window.taskDocuments || {};
+            window.taskDocuments[taskId] = {
+                url: finalDocUrl,
+                name: finalDocName
+            };
+        }
+
+        // 🔧 显示其他辅助文件
+        const otherFiles = Object.entries(minioUrls).filter(([key]) => key !== 'final_document');
+        if (otherFiles.length > 0) {
+            completionMessage += `📋 **辅助文件：**\n`;
+            for (const [key, url] of otherFiles) {
+                const filename = getDisplayName(key, files[key]) || `${key}文件`;
+                completionMessage += `- [📄 ${filename}](${url})\n`;
+            }
+            completionMessage += '\n';
+        }
+
+        completionMessage += '💡 点击链接即可下载文档';
+    } else {
+        completionMessage += '⚠️ 文档已生成，但未找到下载链接。\n\n';
+        completionMessage += '📋 **调试信息：**\n';
+        completionMessage += `- 任务ID: ${taskId}\n`;
+        completionMessage += `- files存在: ${!!taskResult.files}\n`;
+        completionMessage += `- minio_urls存在: ${!!taskResult.minio_urls}\n`;
+        if (taskResult.minio_urls) {
+            completionMessage += `- minio_urls键数量: ${Object.keys(taskResult.minio_urls).length}\n`;
+        }
+    }
+
+    return completionMessage;
 }
 
 // 清理所有轮询任务（页面卸载时）
@@ -2321,19 +3215,35 @@ async function fetchAndRenderMarkdown(url, docName) {
         document.getElementById('previewStatus').textContent = '正在渲染文档...';
 
         let htmlContent;
-        if (typeof marked !== 'undefined' && marked.parse) {
+        if (typeof marked !== 'undefined' && !window.markedLoadFailed) {
             // 🔧 配置marked选项 - 检查marked版本兼容性
             try {
-                if (marked.setOptions) {
-                    marked.setOptions({
+                // 适配不同版本的API
+                if (typeof marked.parse === 'function') {
+                    // 新版API
+                    if (marked.setOptions) {
+                        marked.setOptions({
+                            breaks: true,
+                            gfm: true,
+                            headerIds: false,
+                            mangle: false
+                        });
+                    }
+                    htmlContent = marked.parse(markdownContent);
+                } else if (typeof marked === 'function') {
+                    // 旧版API兼容
+                    marked.setOptions && marked.setOptions({
                         breaks: true,
                         gfm: true,
                         headerIds: false,
                         mangle: false
                     });
+                    htmlContent = marked(markdownContent);
+                } else {
+                    throw new Error('无法识别的marked.js API');
                 }
-                htmlContent = marked.parse(markdownContent);
-                console.log('✅ 使用marked.js渲染Markdown');
+
+                console.log('✅ 使用marked.js渲染Markdown预览');
             } catch (markedError) {
                 console.warn('⚠️ marked.js渲染失败，使用备用方法:', markedError);
                 htmlContent = renderMarkdownFallback(markdownContent);
@@ -2373,8 +3283,9 @@ async function fetchAndRenderMarkdown(url, docName) {
     }
 }
 
-// 🆕 备用Markdown渲染函数
+// 🆕 备用Markdown渲染函数 (增强版)
 function renderMarkdownFallback(markdownContent) {
+    console.log('🔧 使用备用Markdown渲染器');
     return markdownContent
         .replace(/\n/g, '<br>')
         .replace(/^### (.*$)/gm, '<h3>$1</h3>')
@@ -2382,16 +3293,224 @@ function renderMarkdownFallback(markdownContent) {
         .replace(/^# (.*$)/gm, '<h1>$1</h1>')
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width: 100%; height: auto; margin: 12px 0; border-radius: 8px;">')
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+        .replace(/`([^`]+)`/g, '<code style="background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; font-family: monospace;">$1</code>')
+        .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width: 400px; width: auto; height: auto; margin: 12px 0; border-radius: 8px; display: block; cursor: pointer;" onclick="window.open(\'$2\', \'_blank\')" title="点击查看大图">')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color: #007bff; text-decoration: none;">$1</a>');
+}
+
+// 检查marked.js状态
+function checkMarkedJSStatus() {
+    if (typeof marked !== 'undefined') {
+        console.log('✅ marked.js已成功加载');
+
+        // 检查API兼容性
+        const apiInfo = {
+            marked_function: typeof marked === 'function',
+            parse_method: typeof marked.parse === 'function',
+            setOptions_method: typeof marked.setOptions === 'function',
+            use_method: typeof marked.use === 'function'
+        };
+
+        console.log('📋 marked.js API信息:', apiInfo);
+
+        // 尝试获取版本信息
+        try {
+            if (marked.getDefaults) {
+                const defaults = marked.getDefaults();
+                console.log('⚙️ marked.js配置:', defaults);
+            }
+        } catch (e) {
+            console.log('ℹ️ 无法获取默认配置');
+        }
+
+        return true;
+    } else if (window.markedLoadFailed) {
+        console.warn('❌ marked.js加载完全失败，将使用备用渲染器');
+        return false;
+    } else {
+        console.warn('⚠️ marked.js尚未加载完成');
+        return false;
+    }
 }
 
 function enhanceImages(htmlContent) {
-    // 改进图片显示，添加加载状态和错误处理
-    return htmlContent.replace(
-        /<img([^>]+)>/g,
-        '<div class="image-container"><img$1 loading="lazy" onerror="this.parentElement.innerHTML=\'<div class=&quot;image-error&quot;>🖼️ 图片加载失败</div>\'"></div>'
+    // 辅助函数：检测是否为图片URL或图片相关链接
+    function isImageLink(url, linkText) {
+        // 检查URL是否指向图片格式
+        const imageExtensions = /\.(jpg|jpeg|png|gif|bmp|webp|svg)(\?.*)?$/i;
+        if (imageExtensions.test(url)) {
+            return true;
+        }
+
+        // 检查链接文本是否包含图片关键词
+        const imageKeywords = /(?:图|示意图|截图|图片|图像|示例|样例|效果图|设计图|布局图|结构图|流程图|架构图|原理图|配置图)/i;
+        if (imageKeywords.test(linkText)) {
+            return true;
+        }
+
+        // 检查URL是否来自已知的图片服务器或包含图片路径
+        const imageServerPatterns = [
+            /43\.139\.19\.144:900/,  // 用户提到的图片服务器
+            /\/images?\//i,
+            /\/img\//i,
+            /\/static\//i,
+            /\/uploads?\//i,
+            /\/assets?\//i,
+            /_image/i,
+            /image_/i
+        ];
+
+        return imageServerPatterns.some(pattern => pattern.test(url));
+    }
+
+    // 首先处理指向图片的普通链接，将其转换为图片显示
+    let enhanced = htmlContent.replace(
+        /<a\s+href="([^"]+)"\s+target="_blank"[^>]*>([^<]+)<\/a>/gi,
+        function (match, url, linkText) {
+            if (isImageLink(url, linkText)) {
+                console.log('🖼️ 检测到图片链接:', linkText, '->', url);
+                // 生成唯一ID避免冲突
+                const containerId = `img-container-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                // 将错误和加载处理移到data属性中，避免模板字符串在HTML属性中的问题
+                return `<div class="image-container" id="${containerId}">
+                    <img src="${url}" 
+                         alt="${linkText}"
+                         loading="lazy" 
+                         style="max-width: 400px; width: auto; height: auto; margin: 12px 0; border-radius: 8px; display: block; opacity: 0; cursor: pointer;"
+                         data-link-text="${linkText.replace(/"/g, '&quot;')}" 
+                         data-url="${url.replace(/"/g, '&quot;')}"
+                         onload="this.style.opacity='1'; this.previousElementSibling?.remove(); console.log('✅ 图片加载成功:', this.dataset.linkText);"
+                         onerror="handleImageError(this)"
+                         onclick="window.open('${url}', '_blank')"
+                         title="点击查看大图">
+                    <div class="image-loading" style="padding: 20px; text-align: center; color: #666; font-size: 14px;">⏳ 加载图片中: ${linkText}...</div>
+                </div>`;
+            }
+            // 如果不是图片链接，保持原样
+            return match;
+        }
     );
+
+    // 然后处理标准的img标签，添加加载状态和错误处理
+    enhanced = enhanced.replace(
+        /<img([^>]+)>/g,
+        function (match, attributes) {
+            // 检查是否已经被上面的逻辑处理过
+            if (match.includes('class="image-container"') || attributes.includes('data-link-text')) {
+                return match;
+            }
+
+            // 生成唯一ID
+            const containerId = `img-container-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            // 添加默认样式和错误处理
+            const enhancedImg = `<div class="image-container" id="${containerId}">
+                <img${attributes} 
+                     loading="lazy" 
+                     style="max-width: 400px; width: auto; height: auto; margin: 12px 0; border-radius: 8px; display: block; cursor: pointer;"
+                     onload="this.style.opacity='1'; this.previousElementSibling?.remove(); console.log('✅ 图片加载成功');"
+                     onerror="handleImageError(this)"
+                     onclick="this.src && window.open(this.src, '_blank')"
+                     title="点击查看大图">
+                <div class="image-loading" style="padding: 20px; text-align: center; color: #666; font-size: 14px;">⏳ 图片加载中...</div>
+            </div>`;
+            return enhancedImg;
+        }
+    );
+
+    // 最后处理纯文本中的图片名称，将其转换为可点击的图片或下载链接
+    enhanced = enhanceTextImageNames(enhanced);
+
+    return enhanced;
+}
+
+// 🔧 图片错误处理函数
+function handleImageError(imgElement) {
+    console.log('❌ 图片加载失败:', imgElement.src);
+
+    const container = imgElement.parentElement;
+    const linkText = imgElement.dataset?.linkText || '未知图片';
+    const url = imgElement.dataset?.url || imgElement.src;
+
+    // 创建错误显示元素
+    const errorHtml = `
+        <div class="image-error" style="padding: 20px; text-align: center; color: #888; border: 1px dashed #ccc; border-radius: 8px; margin: 12px 0;">
+            🖼️ 图片加载失败
+            ${linkText !== '未知图片' ? `<br><strong>${linkText}</strong>` : ''}
+            <br><small>请检查图片链接是否有效</small>
+            <br><a href="${url}" target="_blank" style="color: #007bff; text-decoration: none;">点击查看原链接</a>
+        </div>
+    `;
+
+    container.innerHTML = errorHtml;
+}
+
+// 🆕 处理纯文本中的图片名称
+function enhanceTextImageNames(htmlContent) {
+    console.log('🔍 开始处理纯文本图片名称');
+
+    let enhanced = htmlContent;
+
+    // 更精确的匹配策略：寻找独立的图片名称行
+    const lines = enhanced.split('<br>');
+    const processedLines = lines.map(line => {
+        // 跳过已经包含HTML标签的行
+        if (line.includes('<') && line.includes('>')) {
+            return line;
+        }
+
+        // 移除可能的列表符号和空格
+        const cleanLine = line.replace(/^[-*•]\s*/, '').trim();
+
+        // 图片名称的识别模式 - 更精确的匹配
+        const imageNamePatterns = [
+            /^(.*?(?:示意图|效果图|设计图|布局图|结构图|流程图|架构图|原理图|配置图|平面图|立面图|剖面图|详图|节点图)\d*)$/i,
+            /^(.*?关系图.*)$/i,
+            /^(防护措施示意图\d*)$/i,
+            /^(.*?图\s*\d+)$/i
+        ];
+
+        for (const pattern of imageNamePatterns) {
+            const match = cleanLine.match(pattern);
+            if (match && match[1]) {
+                const imageName = match[1].trim();
+
+                // 过滤掉太短或太长的匹配
+                if (imageName.length < 3 || imageName.length > 50) {
+                    continue;
+                }
+
+                // 构造可能的图片URL
+                const possibleUrls = [
+                    `http://43.139.19.144:9000/images/${encodeURIComponent(imageName)}.png`,
+                    `http://43.139.19.144:9000/images/${encodeURIComponent(imageName)}.jpg`,
+                    `http://43.139.19.144:9000/images/${encodeURIComponent(imageName)}.jpeg`,
+                    `http://43.139.19.144:9000/images/${encodeURIComponent(imageName)}.pdf`,
+                    `http://43.139.19.144:9000/documents/${encodeURIComponent(imageName)}.png`,
+                    `http://43.139.19.144:9000/documents/${encodeURIComponent(imageName)}.jpg`,
+                    `http://43.139.19.144:9000/documents/${encodeURIComponent(imageName)}.jpeg`,
+                    `http://43.139.19.144:9000/documents/${encodeURIComponent(imageName)}.pdf`
+                ];
+
+                console.log('🖼️ 检测到纯文本图片名称:', imageName);
+
+                // 创建一个可点击的图片预览组件
+                return `<div class="text-image-reference" style="margin: 8px 0; padding: 12px; background: #f8f9fa; border-left: 4px solid #007bff; border-radius: 4px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 20px;">🖼️</span>
+                        <span style="font-weight: 500; color: #333;">${imageName}</span>
+                        <button onclick="tryLoadTextImage('${imageName.replace(/'/g, "\\'")}', ${JSON.stringify(possibleUrls)})" 
+                                style="background: #007bff; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-left: auto;">
+                            查看图片
+                        </button>
+                    </div>
+                </div>`;
+            }
+        }
+
+        return line;
+    });
+
+    return processedLines.join('<br>');
 }
 
 function setupImageHandling() {
@@ -2440,6 +3559,127 @@ async function refreshPreview() {
     console.log('🔄 预览已刷新');
 }
 
+// 🆕 尝试加载纯文本中提到的图片
+async function tryLoadTextImage(imageName, possibleUrls) {
+    console.log('🔍 尝试加载图片:', imageName, possibleUrls);
+
+    // 创建模态框显示加载状态
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+        background: rgba(0,0,0,0.8); z-index: 10000; display: flex; 
+        align-items: center; justify-content: center;
+    `;
+    modal.id = 'imageLoadModal';
+
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: white; padding: 20px; border-radius: 8px; 
+        max-width: 90vw; max-height: 90vh; overflow: auto;
+        position: relative;
+    `;
+
+    // 关闭按钮
+    const closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '✕';
+    closeBtn.style.cssText = `
+        position: absolute; top: 10px; right: 10px; 
+        background: none; border: none; font-size: 20px; 
+        cursor: pointer; color: #666;
+    `;
+    closeBtn.onclick = () => document.body.removeChild(modal);
+
+    content.appendChild(closeBtn);
+
+    // 加载状态
+    const loadingDiv = document.createElement('div');
+    loadingDiv.innerHTML = `<div style="text-align: center; padding: 40px;">
+        <div style="font-size: 24px; margin-bottom: 16px;">🔍</div>
+        <div>正在查找图片: ${imageName}</div>
+        <div style="margin-top: 8px; font-size: 14px; color: #666;">尝试多个可能的位置...</div>
+    </div>`;
+    content.appendChild(loadingDiv);
+
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+
+    // 逐个尝试URL
+    for (let i = 0; i < possibleUrls.length; i++) {
+        const url = possibleUrls[i];
+        console.log(`🔍 尝试URL ${i + 1}/${possibleUrls.length}:`, url);
+
+        try {
+            // 更新加载状态
+            loadingDiv.innerHTML = `<div style="text-align: center; padding: 40px;">
+                <div style="font-size: 24px; margin-bottom: 16px;">🔍</div>
+                <div>正在查找图片: ${imageName}</div>
+                <div style="margin-top: 8px; font-size: 14px; color: #666;">尝试位置 ${i + 1}/${possibleUrls.length}</div>
+                <div style="margin-top: 4px; font-size: 12px; color: #888; word-break: break-all;">${url}</div>
+            </div>`;
+
+            const response = await fetch(url, { method: 'HEAD' });
+            if (response.ok) {
+                console.log('✅ 找到图片:', url);
+
+                // 根据文件类型显示内容
+                const contentType = response.headers.get('content-type') || '';
+
+                if (contentType.startsWith('image/')) {
+                    // 显示图片
+                    content.innerHTML = `
+                        <button onclick="document.body.removeChild(document.getElementById('imageLoadModal'))" 
+                                style="position: absolute; top: 10px; right: 10px; background: none; border: none; font-size: 20px; cursor: pointer; color: #666;">✕</button>
+                        <div style="text-align: center; padding: 20px;">
+                            <h3 style="margin-bottom: 16px;">${imageName}</h3>
+                            <img src="${url}" style="max-width: 100%; height: auto; border-radius: 8px;" alt="${imageName}">
+                            <div style="margin-top: 16px;">
+                                <a href="${url}" target="_blank" style="color: #007bff; text-decoration: none;">🔗 在新窗口中打开</a>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    // 非图片文件，提供下载链接
+                    content.innerHTML = `
+                        <button onclick="document.body.removeChild(document.getElementById('imageLoadModal'))" 
+                                style="position: absolute; top: 10px; right: 10px; background: none; border: none; font-size: 20px; cursor: pointer; color: #666;">✕</button>
+                        <div style="text-align: center; padding: 40px;">
+                            <div style="font-size: 48px; margin-bottom: 16px;">📄</div>
+                            <h3>${imageName}</h3>
+                            <p style="color: #666; margin: 16px 0;">检测到文档文件</p>
+                            <a href="${url}" target="_blank" 
+                               style="display: inline-block; background: #007bff; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">
+                               📥 下载/查看文件
+                            </a>
+                        </div>
+                    `;
+                }
+                return;
+            }
+        } catch (error) {
+            console.log(`❌ URL ${i + 1} 失败:`, error.message);
+        }
+    }
+
+    // 所有URL都失败了
+    console.log('❌ 所有图片URL都失败了');
+    content.innerHTML = `
+        <button onclick="document.body.removeChild(document.getElementById('imageLoadModal'))" 
+                style="position: absolute; top: 10px; right: 10px; background: none; border: none; font-size: 20px; cursor: pointer; color: #666;">✕</button>
+        <div style="text-align: center; padding: 40px;">
+            <div style="font-size: 48px; margin-bottom: 16px;">❌</div>
+            <h3>未找到图片: ${imageName}</h3>
+            <p style="color: #666; margin: 16px 0;">在以下位置都未找到相应的图片文件：</p>
+            <div style="text-align: left; background: #f8f9fa; padding: 16px; border-radius: 4px; margin: 16px 0; max-height: 200px; overflow-y: auto;">
+                ${possibleUrls.map(url => `<div style="font-family: monospace; font-size: 12px; margin: 4px 0; word-break: break-all;">${url}</div>`).join('')}
+            </div>
+            <p style="color: #888; font-size: 14px;">请联系管理员确认图片是否已上传到服务器</p>
+        </div>
+    `;
+}
+
+// 导出函数到全局作用域
+window.tryLoadTextImage = tryLoadTextImage;
+
 // 导出预览相关函数到全局作用域
 window.previewMarkdownDocument = previewMarkdownDocument;
 window.openMarkdownPreview = openMarkdownPreview;
@@ -2471,7 +3711,7 @@ if (!window.previewEventListenersAdded) {
     console.log('✅ 预览器事件监听器已添加');
 }
 
-// 🆕 保存项目文件列表
+// 🆕 保存项目文件列表 (本地备用)
 function saveProjectFiles() {
     if (!currentProject || !currentProject.id) {
         // 如果没有项目信息，保存到通用文件列表
@@ -2482,33 +3722,74 @@ function saveProjectFiles() {
     // 按项目ID分别保存文件列表
     const projectFilesKey = `projectFiles_${currentProject.id}`;
     localStorage.setItem(projectFilesKey, JSON.stringify(currentFiles));
-    console.log(`💾 保存项目${currentProject.name}的文件列表，共${currentFiles.length}个文件`);
+    console.log(`💾 保存项目${currentProject.name}的文件列表到localStorage，共${currentFiles.length}个文件`);
 }
 
-// 🆕 加载项目文件列表
-function loadProjectFiles() {
-    if (!currentProject || !currentProject.id) {
-        // 如果没有项目信息，加载通用文件列表
-        const saved = localStorage.getItem('currentFiles');
-        if (saved) {
-            currentFiles = JSON.parse(saved);
+// 🆕 从数据库加载项目文件列表 (真正的数据库实现)
+async function loadProjectFiles() {
+    try {
+        if (!currentProject || !currentProject.name) {
+            console.log('📁 没有项目信息，初始化为空文件列表');
+            currentFiles = [];
+            updateFileTreeUI();
+            return;
+        }
+
+        console.log(`📚 从数据库加载项目${currentProject.name}的文件列表...`);
+
+        // 调用后端API获取项目文件
+        const projectIdentifier = encodeURIComponent(currentProject.name);
+        const response = await apiRequest(`/api/projects/${projectIdentifier}/files?by_name=true`);
+        const result = await response.json();
+
+        if (result.success && result.files) {
+            // 转换数据库文件记录为前端格式
+            currentFiles = result.files.map(file => ({
+                name: file.display_name || file.original_name,
+                path: file.minio_path,
+                reactAgentPath: file.minio_path,
+                type: file.mime_type,
+                size: file.file_size,
+                isTemporary: false,
+                verified: file.status === 'ready',
+                dbId: file.id,
+                uploadedAt: file.uploaded_at
+            }));
+
+            console.log(`✅ 成功从数据库加载${currentFiles.length}个文件记录`);
+
+            // 同时更新localStorage作为备用
+            const projectFilesKey = `projectFiles_${currentProject.id}`;
+            localStorage.setItem(projectFilesKey, JSON.stringify(currentFiles));
         } else {
+            console.log(`📁 项目${currentProject.name}暂无文件记录`);
             currentFiles = [];
         }
-    } else {
-        // 按项目ID加载对应的文件列表
-        const projectFilesKey = `projectFiles_${currentProject.id}`;
-        const saved = localStorage.getItem(projectFilesKey);
-        if (saved) {
-            currentFiles = JSON.parse(saved);
-            console.log(`📚 加载项目${currentProject.name}的文件列表，共${currentFiles.length}个文件`);
-        } else {
+
+    } catch (error) {
+        console.error('❌ 从数据库加载文件列表失败:', error);
+
+        // 降级到localStorage备用方案
+        console.log('🔄 尝试从localStorage加载备用文件列表...');
+        try {
+            const projectFilesKey = currentProject?.id ? `projectFiles_${currentProject.id}` : 'currentFiles';
+            const saved = localStorage.getItem(projectFilesKey);
+            if (saved) {
+                currentFiles = JSON.parse(saved);
+                console.log(`📚 从localStorage恢复${currentFiles.length}个文件记录`);
+            } else {
+                currentFiles = [];
+            }
+        } catch (fallbackError) {
+            console.error('❌ localStorage备用方案也失败:', fallbackError);
             currentFiles = [];
-            console.log(`📁 项目${currentProject.name}暂无文件，初始化为空`);
         }
+
+        showNotification('从数据库加载文件列表失败，已切换到本地备用数据', 'warning');
     }
 
     updateFileTreeUI();
+    updateCurrentFilesUI();
 }
 
 // 🆕 更新文件树UI
@@ -2612,3 +3893,64 @@ function switchToProject(projectId, projectName, projectType) {
 
 // 导出项目切换函数到全局作用域
 window.switchToProject = switchToProject;
+
+// 🧪 调试用：测试任务轮询功能
+window.debugTaskPolling = function (testTaskId = 'test_' + Date.now()) {
+    console.log(`🧪 开始测试任务轮询功能，任务ID: ${testTaskId}`);
+
+    // 模拟一个任务ID返回的消息
+    const testMessage = `✅ 文档生成任务已提交！
+
+**任务信息：**
+- 任务ID: ${testTaskId}
+- 状态: 处理中
+- 说明: 测试任务已创建
+
+文档正在生成中，完成后将提供下载链接。`;
+
+    // 添加测试消息到界面
+    addMessage('ai', testMessage);
+
+    // 开始轮询测试
+    startTaskPolling(testTaskId, testMessage);
+
+    console.log(`🧪 测试说明:`);
+    console.log(`   1. 这会启动一个对不存在任务的轮询测试`);
+    console.log(`   2. 应该很快看到"任务不存在"的错误`);
+    console.log(`   3. 检查控制台输出以验证错误处理逻辑`);
+    console.log(`   4. 使用 clearTaskPolling('${testTaskId}') 来手动停止轮询`);
+
+    return testTaskId;
+};
+
+// 🧪 调试用：手动清除任务轮询
+window.debugClearPolling = function (taskId) {
+    if (!taskId) {
+        console.log('🧹 清除所有轮询任务');
+        for (const [tid] of pollingIntervals) {
+            clearTaskPolling(tid);
+        }
+        console.log(`✅ 已清除 ${pollingIntervals.size} 个轮询任务`);
+    } else {
+        console.log(`🧹 清除任务 ${taskId} 的轮询`);
+        clearTaskPolling(taskId);
+    }
+};
+
+// 🧪 调试用：查看当前轮询状态
+window.debugPollingStatus = function () {
+    console.log(`📊 当前轮询状态:`);
+    console.log(`   - 活跃轮询任务数: ${pollingIntervals.size}`);
+    if (pollingIntervals.size > 0) {
+        console.log(`   - 任务列表:`, Array.from(pollingIntervals.keys()));
+    }
+    return {
+        activeCount: pollingIntervals.size,
+        taskIds: Array.from(pollingIntervals.keys())
+    };
+};
+
+console.log('🧪 调试功能已加载！');
+console.log('   - debugTaskPolling() - 测试任务轮询');
+console.log('   - debugClearPolling(taskId) - 清除轮询');
+console.log('   - debugPollingStatus() - 查看轮询状态');

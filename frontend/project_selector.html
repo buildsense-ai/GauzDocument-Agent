@@ -348,6 +348,38 @@
             box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2);
         }
 
+        /* 🆕 项目操作按钮样式 */
+        .project-actions {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .delete-btn {
+            background: none;
+            border: none;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            font-size: 12px;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+            opacity: 0;
+            transform: scale(0.8);
+        }
+
+        .project-card:hover .delete-btn {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .delete-btn:hover {
+            background: var(--error-color);
+            color: white;
+            transform: scale(1.1);
+        }
+
         .project-meta {
             display: flex;
             justify-content: space-between;
@@ -630,6 +662,25 @@
             transform: translateY(-1px);
             box-shadow: var(--shadow-sm);
         }
+
+        /* 删除按钮样式 */
+        .delete-btn {
+            background: none;
+            border: none;
+            color: var(--error-color);
+            cursor: pointer;
+            font-size: 18px;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+            margin-left: 10px;
+            /* 与指示器保持一定间距 */
+        }
+
+        .delete-btn:hover {
+            background: var(--bg-hover);
+            color: var(--error-color);
+        }
     </style>
 </head>
 
@@ -671,50 +722,12 @@
                 </div>
             </div>
 
-            <div class="projects-grid">
-                <div class="project-card" onclick="selectProject('liushi_ancestral_hall')">
-                    <div class="project-header">
-                        <div class="project-icon">🏛️</div>
-                        <div class="project-info">
-                            <div class="project-title">刘氏宗祠</div>
-                            <div class="project-type">文物修缮</div>
-                            <div class="project-desc">明代建筑群修缮项目，包括主祠堂、配殿及院落的保护性修复，传承历史文化</div>
-                        </div>
-                        <div class="project-indicator indicator-pending"></div>
-                    </div>
-                    <div class="project-meta">
-                        <div class="meta-stats">
-                            <div class="meta-item">
-                                <span class="meta-value" id="liushi-files">0</span> 文件
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-value" id="liushi-chats">0</span> 对话
-                            </div>
-                        </div>
-                        <div class="project-time">刚刚创建</div>
-                    </div>
-                </div>
-
-                <div class="project-card" onclick="selectProject('yiling_ancient_temple')">
-                    <div class="project-header">
-                        <div class="project-icon">🏯</div>
-                        <div class="project-info">
-                            <div class="project-title">医灵古庙</div>
-                            <div class="project-type">古建筑保护</div>
-                            <div class="project-desc">唐代古庙复原工程，涉及大殿、钟楼、藏经阁的重建与周边环境整治</div>
-                        </div>
-                        <div class="project-indicator indicator-pending"></div>
-                    </div>
-                    <div class="project-meta">
-                        <div class="meta-stats">
-                            <div class="meta-item">
-                                <span class="meta-value" id="yiling-files">0</span> 文件
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-value" id="yiling-chats">0</span> 对话
-                            </div>
-                        </div>
-                        <div class="project-time">刚刚创建</div>
+            <div class="projects-grid" id="projectsGrid">
+                <!-- 🆕 项目将通过API动态加载 -->
+                <div class="loading-projects" id="loadingProjects">
+                    <div style="text-align: center; padding: 60px; color: var(--text-secondary);">
+                        <div style="font-size: 24px; margin-bottom: 16px;">⏳</div>
+                        <div>正在加载项目...</div>
                     </div>
                 </div>
             </div>
@@ -746,17 +759,13 @@
     </div>
 
     <script>
-        // 项目数据管理
-        let projectData = {
-            liushi_ancestral_hall: { files: 0, chats: 0 },
-            yiling_ancient_temple: { files: 0, chats: 0 }
-        };
+        // 🆕 项目数据管理 - 改为动态加载
+        let projectData = {};
 
-        // 初始化
+        // 🆕 初始化 - 从数据库加载项目
         document.addEventListener('DOMContentLoaded', function () {
             initializeTheme();
-            loadProjectData();
-            updateProjectCounts();
+            loadProjectsFromDatabase();
         });
 
         // 主题管理
@@ -798,27 +807,22 @@
             }
         });
 
-        // 项目选择功能
-        function selectProject(projectId) {
-            // 获取项目信息
-            const projectCard = event.target.closest('.project-card');
-            const projectTitle = projectCard.querySelector('.project-title').textContent;
-            const projectType = projectCard.querySelector('.project-type').textContent;
-
-            console.log('选择项目:', projectId, projectTitle);
+        // 🆕 项目选择功能 - 支持数据库项目
+        function selectProject(projectId, projectName, projectType) {
+            console.log('选择项目:', projectId, projectName, projectType);
 
             // 跳转到对话页面，传递项目信息
             const params = new URLSearchParams({
                 project: projectId,
-                projectName: projectTitle,
-                projectType: projectType
+                projectName: projectName || '未命名项目',
+                projectType: projectType || '工程项目'
             });
 
             window.location.href = `/chat?${params.toString()}`;
         }
 
-        // 新建项目功能
-        function createNewProject() {
+        // 🆕 新建项目功能 - 使用API
+        async function createNewProject() {
             const projectName = prompt('请输入新项目名称:');
             if (!projectName || projectName.trim() === '') {
                 return;
@@ -827,93 +831,203 @@
             const projectType = prompt('请输入项目类型 (如: 文物修缮, 古建筑保护, 市政工程):') || '工程项目';
             const projectDesc = prompt('请输入项目描述:') || '新建工程项目';
 
-            // 生成项目ID
-            const projectId = 'project_' + Date.now();
+            try {
+                const response = await fetch('/api/projects', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: projectName,
+                        type: projectType,
+                        description: projectDesc
+                    })
+                });
 
-            // 创建新项目卡片
-            createProjectCard(projectId, projectName, projectType, projectDesc);
-
-            // 初始化项目数据
-            projectData[projectId] = { files: 0, chats: 0 };
-            saveProjectData();
-
-            alert(`项目 "${projectName}" 创建成功！`);
+                const result = await response.json();
+                if (result.success) {
+                    alert(`项目 "${projectName}" 创建成功！`);
+                    // 重新加载项目列表
+                    loadProjectsFromDatabase();
+                } else {
+                    alert(`创建项目失败: ${result.error}`);
+                }
+            } catch (error) {
+                console.error('创建项目失败:', error);
+                alert('创建项目失败，请检查网络连接');
+            }
         }
 
-        // 创建项目卡片
-        function createProjectCard(projectId, name, type, desc) {
-            const projectsGrid = document.querySelector('.projects-grid');
+        // 🆕 删除项目功能
+        async function deleteProject(projectId, projectName, event) {
+            // 阻止事件冒泡，避免触发项目选择
+            event.stopPropagation();
+
+            // 确认删除
+            const confirmed = confirm(`确定要删除项目 "${projectName}" 吗？\n\n此操作将删除项目的所有对话记录和文件，且无法恢复！`);
+            if (!confirmed) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/projects/${projectId}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    alert(`项目 "${projectName}" 已成功删除！`);
+                    // 重新加载项目列表
+                    loadProjectsFromDatabase();
+                } else {
+                    alert(`删除项目失败: ${result.error}`);
+                }
+            } catch (error) {
+                console.error('删除项目失败:', error);
+                alert('删除项目失败，请检查网络连接');
+            }
+        }
+
+        // 🆕 从数据库加载项目
+        async function loadProjectsFromDatabase() {
+            const loadingElement = document.getElementById('loadingProjects');
+            const projectsGrid = document.getElementById('projectsGrid');
+
+            try {
+                const response = await fetch('/api/projects');
+                const result = await response.json();
+
+                if (result.success && result.projects) {
+                    // 隐藏加载提示
+                    if (loadingElement) {
+                        loadingElement.style.display = 'none';
+                    }
+
+                    // 清空现有项目
+                    projectsGrid.innerHTML = '';
+
+                    if (result.projects.length === 0) {
+                        // 显示空状态
+                        projectsGrid.innerHTML = `
+                            <div class="empty-state">
+                                <div class="empty-icon">📁</div>
+                                <div class="empty-title">暂无项目</div>
+                                <div class="empty-desc">点击"新建"按钮创建您的第一个项目</div>
+                            </div>
+                        `;
+                    } else {
+                        // 创建项目卡片
+                        result.projects.forEach(project => {
+                            createProjectCard(project);
+                        });
+                    }
+
+                    // 更新本地项目数据
+                    projectData = {};
+                    result.projects.forEach(project => {
+                        projectData[project.id] = {
+                            files: project.file_count || 0,
+                            chats: project.message_count || 0
+                        };
+                    });
+                } else {
+                    throw new Error(result.error || '加载项目失败');
+                }
+            } catch (error) {
+                console.error('加载项目失败:', error);
+                if (loadingElement) {
+                    loadingElement.innerHTML = `
+                        <div style="text-align: center; padding: 60px; color: var(--error-color);">
+                            <div style="font-size: 24px; margin-bottom: 16px;">❌</div>
+                            <div>加载项目失败</div>
+                            <div style="font-size: 12px; margin-top: 8px;">${error.message}</div>
+                            <button onclick="loadProjectsFromDatabase()" style="margin-top: 16px; padding: 8px 16px; background: var(--primary-color); color: white; border: none; border-radius: 4px; cursor: pointer;">重试</button>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        // 🆕 创建项目卡片（使用数据库数据）
+        function createProjectCard(project) {
+            const projectsGrid = document.getElementById('projectsGrid');
 
             const projectCard = document.createElement('div');
             projectCard.className = 'project-card';
-            projectCard.onclick = () => selectProject(projectId);
+            projectCard.onclick = () => selectProject(project.id, project.name, project.type);
+
+            // 格式化时间
+            const formatTime = (dateString) => {
+                if (!dateString) return '未知时间';
+                const date = new Date(dateString);
+                const now = new Date();
+                const diffMs = now - date;
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMs / 3600000);
+                const diffDays = Math.floor(diffMs / 86400000);
+
+                if (diffMins < 1) return '刚刚';
+                if (diffMins < 60) return `${diffMins}分钟前`;
+                if (diffHours < 24) return `${diffHours}小时前`;
+                if (diffDays < 7) return `${diffDays}天前`;
+                return date.toLocaleDateString('zh-CN');
+            };
+
+            // 选择图标
+            const getProjectIcon = (type) => {
+                const iconMap = {
+                    '文物修缮': '🏛️',
+                    '古建筑保护': '🏯',
+                    '市政工程': '🏗️',
+                    '测试': '🧪'
+                };
+                return iconMap[type] || '📁';
+            };
 
             projectCard.innerHTML = `
                 <div class="project-header">
-                    <div class="project-icon">🏗️</div>
+                    <div class="project-icon">${getProjectIcon(project.type)}</div>
                     <div class="project-info">
-                        <div class="project-title">${name}</div>
-                        <div class="project-type">${type}</div>
-                        <div class="project-desc">${desc}</div>
+                        <div class="project-title">${project.name}</div>
+                        <div class="project-type">${project.type || '工程项目'}</div>
+                        <div class="project-desc">${project.description || '暂无描述'}</div>
                     </div>
-                    <div class="project-indicator indicator-pending"></div>
+                    <div class="project-actions">
+                        <button class="delete-btn" onclick="deleteProject('${project.id}', '${project.name}', event)" title="删除项目">🗑️</button>
+                        <div class="project-indicator indicator-${project.status === 'active' ? 'active' : 'pending'}"></div>
+                    </div>
                 </div>
                 <div class="project-meta">
                     <div class="meta-stats">
                         <div class="meta-item">
-                            <span class="meta-value" id="${projectId}-files">0</span> 文件
+                            <span class="meta-value">${project.file_count || 0}</span> 文件
                         </div>
                         <div class="meta-item">
-                            <span class="meta-value" id="${projectId}-chats">0</span> 对话
+                            <span class="meta-value">${project.message_count || 0}</span> 对话
                         </div>
                     </div>
-                    <div class="project-time">刚刚创建</div>
+                    <div class="project-time">${formatTime(project.last_active_at || project.created_at)}</div>
                 </div>
             `;
 
             projectsGrid.appendChild(projectCard);
         }
 
-        // 项目数据管理
-        function loadProjectData() {
-            const saved = localStorage.getItem('projectData');
-            if (saved) {
-                projectData = JSON.parse(saved);
-            }
-        }
-
-        function saveProjectData() {
-            localStorage.setItem('projectData', JSON.stringify(projectData));
-        }
-
+        // 🆕 项目数据管理 - 简化版本（主要数据来自数据库）
         function updateProjectCounts() {
-            for (const [projectId, data] of Object.entries(projectData)) {
-                const filesElement = document.getElementById(`${projectId}-files`) ||
-                    document.getElementById(projectId.replace('_', '-') + '-files');
-                const chatsElement = document.getElementById(`${projectId}-chats`) ||
-                    document.getElementById(projectId.replace('_', '-') + '-chats');
-
-                if (filesElement) filesElement.textContent = data.files;
-                if (chatsElement) chatsElement.textContent = data.chats;
-            }
+            // 这个函数现在主要用于兼容性，实际数据来自数据库
+            console.log('项目统计更新 - 数据来源：数据库');
         }
 
-        // 增加项目文件数量（供外部调用）
+        // 兼容性函数（保留供外部调用）
         function incrementProjectFiles(projectId) {
-            if (projectData[projectId]) {
-                projectData[projectId].files++;
-                saveProjectData();
-                updateProjectCounts();
-            }
+            console.log(`文件数量增加: ${projectId}`);
+            // 可以选择重新加载项目列表或者进行本地更新
         }
 
-        // 增加项目对话数量（供外部调用）
         function incrementProjectChats(projectId) {
-            if (projectData[projectId]) {
-                projectData[projectId].chats++;
-                saveProjectData();
-                updateProjectCounts();
-            }
+            console.log(`对话数量增加: ${projectId}`);
+            // 可以选择重新加载项目列表或者进行本地更新
         }
 
         // 搜索切换

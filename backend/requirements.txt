@@ -6,4 +6,12 @@ python-dotenv==1.0.0
 colorama==0.4.6
 PyYAML==6.0.1
 aiohttp==3.9.0
-python-multipart==0.0.6 
+python-multipart==0.0.6
+# 新增数据库依赖
+sqlalchemy==2.0.23
+alembic==1.12.1
+pymysql==1.1.0
+asyncpg==0.29.0
+# 新增其他工具
+markdown==3.5.1
+bleach==6.1.0 
