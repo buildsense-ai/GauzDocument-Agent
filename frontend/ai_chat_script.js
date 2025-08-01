@@ -4079,6 +4079,120 @@ function handleEditorScroll() {
         preview.scrollTop = scrollRatio * (preview.scrollHeight - preview.clientHeight);
     }
 }
+// --- 增强版：Markdown编辑器滚动同步 (包含图片加载处理) ---
+
+document.addEventListener('DOMContentLoaded', () => {
+    const markdownEditor = document.getElementById('markdownEditor');
+    const editorPreview = document.getElementById('editorPreview');
+
+    if (!markdownEditor || !editorPreview) {
+        console.error("未能找到编辑器或预览元素，无法设置滚动同步。");
+        return;
+    }
+
+    /**
+     * 更新预览区域并处理图片加载
+     * 这是实现智能同步的核心函数
+     */
+    const handlePreviewUpdate = () => {
+        // 1. 渲染Markdown内容
+        const markdownText = markdownEditor.value;
+        // 假设 'marked' 库已在全局可用
+        editorPreview.innerHTML = marked.parse(markdownText || '');
+
+        // 2. 处理图片加载
+        const images = editorPreview.querySelectorAll('img');
+        if (images.length === 0) {
+            // 如果没有图片，确保同步是启用的
+            if (window.scrollSyncHandler) window.scrollSyncHandler.enable();
+            return;
+        }
+
+        const promises = [];
+        // 在图片加载期间，暂时禁用滚动同步，防止跳动
+        if (window.scrollSyncHandler) window.scrollSyncHandler.disable();
+
+        images.forEach(img => {
+            const promise = new Promise((resolve) => {
+                // 如果图片已加载完成 (例如来自缓存)，立即解析
+                if (img.complete) {
+                    resolve();
+                } else {
+                    img.onload = resolve;
+                    // 在图片加载失败时也解析，以防无限期阻塞
+                    img.onerror = () => {
+                        console.warn('图片加载失败:', img.src);
+                        resolve(); 
+                    };
+                }
+            });
+            promises.push(promise);
+        });
+
+        // 3. 所有图片处理完毕后 (加载成功或失败)
+        Promise.all(promises).then(() => {
+            // 短暂延迟以允许浏览器完成渲染和布局重排
+            setTimeout(() => {
+                if (window.scrollSyncHandler) {
+                    // 重新启用同步
+                    window.scrollSyncHandler.enable();
+                    // 并从编辑器到预览区触发一次主动同步，以校准位置
+                    window.scrollSyncHandler.sync(markdownEditor, editorPreview);
+                }
+            }, 100); // 100毫秒的延迟通常足够
+        });
+    };
+
+    // 创建一个全局的滚动同步处理器对象来管理状态
+    window.scrollSyncHandler = {
+        isSyncing: false,
+        isEnabled: true,
+        
+        // 核心同步逻辑
+        sync: function(source, target) {
+            if (this.isSyncing || !this.isEnabled) return;
+            this.isSyncing = true;
+
+            const sourceScrollHeight = source.scrollHeight - source.clientHeight;
+            // 处理源高度为0的情况，避免除以零
+            if (sourceScrollHeight <= 0) {
+                this.isSyncing = false;
+                return;
+            }
+
+            const scrollPercentage = source.scrollTop / sourceScrollHeight;
+            const targetScrollHeight = target.scrollHeight - target.clientHeight;
+            
+            target.scrollTop = scrollPercentage * targetScrollHeight;
+
+            // 使用 requestAnimationFrame 来平滑滚动并避免竞争条件
+            requestAnimationFrame(() => {
+                this.isSyncing = false;
+            });
+        },
+
+        // 控制启用/禁用的方法
+        enable: function() { this.isEnabled = true; },
+        disable: function() { this.isEnabled = false; }
+    };
+
+    // 绑定滚动事件监听器
+    markdownEditor.addEventListener('scroll', () => {
+        window.scrollSyncHandler.sync(markdownEditor, editorPreview);
+    });
+
+    editorPreview.addEventListener('scroll', () => {
+        window.scrollSyncHandler.sync(editorPreview, markdownEditor);
+    });
+
+    // 关键：将编辑器的输入事件绑定到新的处理函数
+    markdownEditor.addEventListener('input', handlePreviewUpdate);
+
+    // 如果编辑器在加载时已有内容，则触发一次初始更新
+    if (markdownEditor.value) {
+        handlePreviewUpdate();
+    }
+});
 
 // 更新编辑器统计信息
 function updateEditorStats() {
