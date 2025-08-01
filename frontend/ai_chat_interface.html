@@ -1364,6 +1364,22 @@
             background: var(--bg-primary);
         }
 
+        .toolbar-left {
+            display: flex;
+            gap: 8px;
+        }
+
+        .edit-btn {
+            background: var(--success-color) !important;
+            color: white !important;
+            border-color: var(--success-color) !important;
+        }
+
+        .edit-btn:hover {
+            background: var(--success-hover) !important;
+            border-color: var(--success-hover) !important;
+        }
+
         .preview-btn {
             display: flex;
             align-items: center;
@@ -1451,6 +1467,110 @@
 
         .retry-btn:hover {
             background: var(--primary-hover);
+        }
+
+        /* 文档编辑器样式 */
+        .editor-modal {
+            width: 95vw;
+            height: 90vh;
+            max-width: none;
+            max-height: none;
+        }
+
+        .editor-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 24px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-primary);
+        }
+
+        .editor-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .editor-btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .editor-btn:hover {
+            background: var(--bg-hover);
+            border-color: var(--primary-color);
+        }
+
+        .editor-btn.primary {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .editor-btn.primary:hover {
+            background: var(--primary-hover);
+            border-color: var(--primary-hover);
+        }
+
+        .editor-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .editor-pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .editor-pane:last-child {
+            border-right: none;
+        }
+
+        .pane-header {
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .markdown-editor {
+            flex: 1;
+            padding: 16px;
+            border: none;
+            outline: none;
+            resize: none;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        .editor-preview {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+            background: var(--bg-primary);
+        }
+
+        .editor-status {
+            padding: 8px 16px;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
         }
 
         .preview-result {
@@ -1836,12 +1956,17 @@
             </div>
 
             <div class="preview-toolbar">
-                <button class="preview-btn" onclick="downloadOriginalDoc()">
-                    <span>📄</span> 下载原文件
-                </button>
-                <button class="preview-btn" onclick="refreshPreview()">
-                    <span>🔄</span> 刷新预览
-                </button>
+                <div class="toolbar-left">
+                    <button class="preview-btn" onclick="downloadOriginalDoc()">
+                        <span>📄</span> 下载原文件
+                    </button>
+                    <button class="preview-btn" onclick="refreshPreview()">
+                        <span>🔄</span> 刷新预览
+                    </button>
+                    <button class="preview-btn edit-btn" onclick="openDocumentEditor()">
+                        <span>✏️</span> 编辑文档
+                    </button>
+                </div>
                 <div class="preview-status">
                     <span id="previewStatus">准备中...</span>
                 </div>
@@ -1860,6 +1985,53 @@
                 </div>
                 <div id="previewResult" class="preview-result" style="display: none;">
                     <!-- 渲染的Markdown内容将显示在这里 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🆕 文档编辑器模态窗口 -->
+    <div id="documentEditorModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content editor-modal">
+            <div class="modal-header">
+                <h2 class="modal-title">
+                    <span class="title-icon">✏️</span>
+                    <span id="editorDocTitle">编辑文档</span>
+                </h2>
+                <button class="modal-close" onclick="closeDocumentEditor()">×</button>
+            </div>
+
+            <div class="editor-toolbar">
+                <div class="editor-info">
+                    <span id="editorStatus">准备编辑...</span>
+                </div>
+                <div class="editor-actions">
+                    <button class="editor-btn" onclick="insertMarkdownTemplate()">
+                        <span>📝</span> 插入模板
+                    </button>
+                    <button class="editor-btn" onclick="downloadEditedContent()">
+                        <span>💾</span> 下载
+                    </button>
+                    <button class="editor-btn primary" onclick="saveEditedDocument()">
+                        <span>✅</span> 保存修改
+                    </button>
+                </div>
+            </div>
+
+            <div class="editor-content">
+                <div class="editor-pane">
+                    <div class="pane-header">📝 Markdown 编辑器</div>
+                    <textarea id="markdownEditor" class="markdown-editor" placeholder="在此输入或修改 Markdown 内容..."></textarea>
+                    <div class="editor-status">
+                        <span id="editorWordCount">字符数: 0</span>
+                        <span id="editorLineCount">行数: 1</span>
+                    </div>
+                </div>
+                <div class="editor-pane">
+                    <div class="pane-header">👁️ 实时预览</div>
+                    <div id="editorPreview" class="editor-preview">
+                        <p style="color: var(--text-secondary); text-align: center; margin-top: 50px;">开始输入以查看预览...</p>
+                    </div>
                 </div>
             </div>
         </div>

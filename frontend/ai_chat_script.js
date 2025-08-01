@@ -1141,7 +1141,11 @@ async function handleStreamingThoughts(requestData, thinkingProcess) {
                         case 'complete':
                         case 'timeout':
                         case 'error':
+                        case 'session_ended':
                             console.log(`🎉 思考流程结束: ${data.type}`);
+                            if (data.type === 'session_ended') {
+                                console.log('ℹ️ 会话已结束或过期，这是正常现象');
+                            }
                             completeThinking(thinkingProcess);
                             eventSource.close();
 
@@ -3954,3 +3958,353 @@ console.log('🧪 调试功能已加载！');
 console.log('   - debugTaskPolling() - 测试任务轮询');
 console.log('   - debugClearPolling(taskId) - 清除轮询');
 console.log('   - debugPollingStatus() - 查看轮询状态');
+
+// 🆕 文档编辑器功能
+let currentEditingContent = '';
+let currentEditingUrl = '';
+let currentEditingName = '';
+
+// 打开文档编辑器
+function openDocumentEditor() {
+    console.log('📝 打开文档编辑器');
+    
+    // 检查是否有当前预览的文档
+    if (!currentPreviewTaskId || !window.taskDocuments || !window.taskDocuments[currentPreviewTaskId]) {
+        showNotification('请先预览一个文档再进行编辑', 'warning');
+        return;
+    }
+    
+    const docInfo = window.taskDocuments[currentPreviewTaskId];
+    currentEditingUrl = docInfo.url;
+    currentEditingName = docInfo.name;
+    
+    // 设置编辑器标题
+    document.getElementById('editorDocTitle').textContent = `编辑: ${currentEditingName}`;
+    document.getElementById('editorStatus').textContent = '正在加载文档内容...';
+    
+    // 显示编辑器模态窗口
+    const modal = document.getElementById('documentEditorModal');
+    modal.classList.add('show');
+    modal.style.display = 'flex';
+    
+    // 禁用页面滚动
+    document.body.style.overflow = 'hidden';
+    
+    // 加载文档内容到编辑器
+    loadDocumentForEditing();
+    
+    console.log('✅ 文档编辑器已打开');
+}
+
+// 加载文档内容到编辑器
+async function loadDocumentForEditing() {
+    try {
+        console.log(`📥 加载文档内容: ${currentEditingUrl}`);
+        
+        const response = await fetch(currentEditingUrl, {
+            method: 'GET',
+            mode: 'cors',
+            headers: {
+                'Accept': 'text/plain, text/markdown, */*'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const markdownContent = await response.text();
+        currentEditingContent = markdownContent;
+        
+        // 设置编辑器内容
+        const editor = document.getElementById('markdownEditor');
+        editor.value = markdownContent;
+        
+        // 更新状态和统计
+        document.getElementById('editorStatus').textContent = '文档加载完成，可以开始编辑';
+        updateEditorStats();
+        
+        // 初始预览
+        updateEditorPreview();
+        
+        // 设置编辑器事件监听
+        setupEditorEventListeners();
+        
+        console.log('✅ 文档内容加载完成');
+        
+    } catch (error) {
+        console.error('❌ 加载文档内容失败:', error);
+        document.getElementById('editorStatus').textContent = `加载失败: ${error.message}`;
+        showNotification('文档内容加载失败', 'error');
+    }
+}
+
+// 设置编辑器事件监听
+function setupEditorEventListeners() {
+    const editor = document.getElementById('markdownEditor');
+    
+    // 移除之前的监听器（如果存在）
+    editor.removeEventListener('input', handleEditorInput);
+    editor.removeEventListener('scroll', handleEditorScroll);
+    
+    // 添加新的监听器
+    editor.addEventListener('input', handleEditorInput);
+    editor.addEventListener('scroll', handleEditorScroll);
+    
+    console.log('✅ 编辑器事件监听器已设置');
+}
+
+// 处理编辑器输入
+function handleEditorInput() {
+    updateEditorStats();
+    updateEditorPreview();
+    
+    // 标记内容已修改
+    const status = document.getElementById('editorStatus');
+    if (!status.textContent.includes('已修改')) {
+        status.textContent = '文档已修改，记得保存';
+    }
+}
+
+// 处理编辑器滚动（同步预览滚动）
+function handleEditorScroll() {
+    const editor = document.getElementById('markdownEditor');
+    const preview = document.getElementById('editorPreview');
+    
+    // 计算滚动比例
+    const scrollRatio = editor.scrollTop / (editor.scrollHeight - editor.clientHeight);
+    
+    // 同步预览滚动
+    if (isFinite(scrollRatio)) {
+        preview.scrollTop = scrollRatio * (preview.scrollHeight - preview.clientHeight);
+    }
+}
+
+// 更新编辑器统计信息
+function updateEditorStats() {
+    const editor = document.getElementById('markdownEditor');
+    const content = editor.value;
+    
+    const charCount = content.length;
+    const lineCount = content.split('\n').length;
+    
+    document.getElementById('editorWordCount').textContent = `字符数: ${charCount}`;
+    document.getElementById('editorLineCount').textContent = `行数: ${lineCount}`;
+}
+
+// 更新编辑器预览
+function updateEditorPreview() {
+    const editor = document.getElementById('markdownEditor');
+    const preview = document.getElementById('editorPreview');
+    const content = editor.value;
+    
+    if (!content.trim()) {
+        preview.innerHTML = '<p style="color: var(--text-secondary); text-align: center; margin-top: 50px;">开始输入以查看预览...</p>';
+        return;
+    }
+    
+    let htmlContent;
+    
+    // 使用marked.js渲染（如果可用）
+    if (typeof marked !== 'undefined' && !window.markedLoadFailed) {
+        try {
+            if (typeof marked.parse === 'function') {
+                htmlContent = marked.parse(content);
+            } else if (typeof marked === 'function') {
+                htmlContent = marked(content);
+            } else {
+                throw new Error('无法识别的marked.js API');
+            }
+        } catch (markedError) {
+            console.warn('⚠️ marked.js渲染失败，使用备用方法:', markedError);
+            htmlContent = renderMarkdownFallback(content);
+        }
+    } else {
+        htmlContent = renderMarkdownFallback(content);
+    }
+    
+    // 应用图片增强
+    htmlContent = enhanceImages(htmlContent);
+    
+    // 更新预览内容
+    preview.innerHTML = htmlContent;
+    
+    // 设置图片处理
+    setTimeout(() => {
+        setupImageHandling();
+    }, 100);
+}
+
+// 关闭文档编辑器
+function closeDocumentEditor() {
+    const modal = document.getElementById('documentEditorModal');
+    modal.classList.remove('show');
+    modal.style.display = 'none';
+    
+    // 恢复页面滚动
+    document.body.style.overflow = '';
+    
+    // 清理状态
+    currentEditingContent = '';
+    currentEditingUrl = '';
+    currentEditingName = '';
+    
+    console.log('📝 文档编辑器已关闭');
+}
+
+// 插入Markdown模板
+function insertMarkdownTemplate() {
+    const editor = document.getElementById('markdownEditor');
+    const template = `# 文档标题
+
+## 概述
+
+这里是文档的概述内容。
+
+## 主要内容
+
+### 子标题1
+
+- 列表项1
+- 列表项2
+- 列表项3
+
+### 子标题2
+
+**粗体文本** 和 *斜体文本*
+
+\`\`\`
+代码块示例
+\`\`\`
+
+## 结论
+
+这里是结论部分。
+`;
+    
+    // 在当前光标位置插入模板
+    const cursorPos = editor.selectionStart;
+    const currentValue = editor.value;
+    const newValue = currentValue.slice(0, cursorPos) + template + currentValue.slice(cursorPos);
+    
+    editor.value = newValue;
+    editor.focus();
+    
+    // 更新预览和统计
+    updateEditorStats();
+    updateEditorPreview();
+    
+    showNotification('Markdown模板已插入', 'success');
+}
+
+// 下载编辑后的内容
+function downloadEditedContent() {
+    const editor = document.getElementById('markdownEditor');
+    const content = editor.value;
+    
+    if (!content.trim()) {
+        showNotification('没有内容可下载', 'warning');
+        return;
+    }
+    
+    // 生成文件名：项目名_时间戳.md
+    const now = new Date();
+    const timestamp = now.toISOString().slice(0, 19).replace(/[T:]/g, '-').replace(/-/g, '');
+    const projectName = (currentProject && currentProject.name) ? currentProject.name.replace(/[^\w\u4e00-\u9fa5-]/g, '_') : 'GauzDocument';
+    let fileName = `${projectName}_${timestamp}.md`;
+    
+    // 如果有原始文件名，尝试提取有意义的部分
+    if (currentEditingName && currentEditingName !== '完整文档') {
+        const cleanName = currentEditingName.replace(/\.(md|markdown)$/i, '').replace(/[^\w\u4e00-\u9fa5-]/g, '_');
+        if (cleanName && cleanName.length > 0) {
+            fileName = `${projectName}_${cleanName}_${timestamp}.md`;
+        }
+    }
+    
+    // 创建下载链接
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    
+    URL.revokeObjectURL(url);
+    
+    showNotification(`文档已下载: ${fileName}`, 'success');
+    console.log(`💾 编辑后的文档已下载: ${fileName}`);
+}
+
+// 保存编辑后的文档
+async function saveEditedDocument() {
+    const editor = document.getElementById('markdownEditor');
+    const content = editor.value;
+    
+    if (!content.trim()) {
+        showNotification('没有内容可保存', 'warning');
+        return;
+    }
+    
+    try {
+        document.getElementById('editorStatus').textContent = '正在保存文档...';
+        
+        // 这里可以实现保存逻辑，比如：
+        // 1. 保存到本地存储
+        // 2. 发送到后端API保存
+        // 3. 更新原始文档（如果有权限）
+        
+        // 生成保存的文件名
+        const now = new Date();
+        const timestamp = now.toISOString().slice(0, 19).replace(/[T:]/g, '-').replace(/-/g, '');
+        const projectName = (currentProject && currentProject.name) ? currentProject.name.replace(/[^\w\u4e00-\u9fa5-]/g, '_') : 'GauzDocument';
+        let savedFileName = `${projectName}_${timestamp}.md`;
+        
+        // 如果有原始文件名，尝试提取有意义的部分
+        if (currentEditingName && currentEditingName !== '完整文档') {
+            const cleanName = currentEditingName.replace(/\.(md|markdown)$/i, '').replace(/[^\w\u4e00-\u9fa5-]/g, '_');
+            if (cleanName && cleanName.length > 0) {
+                savedFileName = `${projectName}_${cleanName}_${timestamp}.md`;
+            }
+        }
+        
+        // 保存到本地存储
+        const saveKey = `edited_doc_${currentPreviewTaskId}_${Date.now()}`;
+        localStorage.setItem(saveKey, JSON.stringify({
+            name: savedFileName,
+            originalName: currentEditingName,
+            content: content,
+            originalUrl: currentEditingUrl,
+            editTime: new Date().toISOString(),
+            taskId: currentPreviewTaskId
+        }));
+        
+        document.getElementById('editorStatus').textContent = '文档保存成功';
+        showNotification('文档已保存到本地', 'success');
+        
+        console.log('💾 文档已保存到本地存储');
+        
+        // 可选：自动下载备份
+        setTimeout(() => {
+            if (confirm('是否同时下载文档备份？')) {
+                downloadEditedContent();
+            }
+        }, 1000);
+        
+    } catch (error) {
+        console.error('❌ 保存文档失败:', error);
+        document.getElementById('editorStatus').textContent = `保存失败: ${error.message}`;
+        showNotification('文档保存失败', 'error');
+    }
+}
+
+// 导出编辑器函数到全局
+window.openDocumentEditor = openDocumentEditor;
+window.closeDocumentEditor = closeDocumentEditor;
+window.insertMarkdownTemplate = insertMarkdownTemplate;
+window.downloadEditedContent = downloadEditedContent;
+window.saveEditedDocument = saveEditedDocument;
+
+console.log('✏️ 文档编辑器功能已加载！');

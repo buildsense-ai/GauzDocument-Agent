@@ -713,7 +713,26 @@ async def stream_thoughts(session_id: str):
     try:
         # 检查会话是否存在
         if session_id not in active_sessions:
-            raise HTTPException(status_code=404, detail="会话不存在或已过期")
+            # 返回会话已结束的信号，而不是404错误
+            import time
+            async def session_ended_stream():
+                end_data = {
+                    "type": "session_ended",
+                    "message": "会话已结束或已过期",
+                    "timestamp": time.time()
+                }
+                yield f"data: {json.dumps(end_data, ensure_ascii=False)}\n\n"
+            
+            return StreamingResponse(
+                session_ended_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "*"
+                }
+            )
         
         session_data = active_sessions[session_id]
         print(f"🌊 开始流式思考: {session_id}")
@@ -897,10 +916,15 @@ async def stream_thoughts(session_id: str):
                 print(f"   - 总数据条数: {data_sent_count}")
                 print(f"   - 最终回复长度: {len(final_result) if final_result else 0}")
                 
-                # 清理会话数据
-                if session_id in active_sessions:
-                    del active_sessions[session_id]
-                    print(f"🧹 清理会话数据: {session_id}")
+                # 延迟清理会话数据，避免前端重连时出现404错误
+                async def delayed_cleanup():
+                    await asyncio.sleep(30)  # 30秒后清理
+                    if session_id in active_sessions:
+                        del active_sessions[session_id]
+                        print(f"🧹 延迟清理会话数据: {session_id}")
+                
+                # 启动延迟清理任务
+                asyncio.create_task(delayed_cleanup())
                     
             except Exception as e:
                 # 确保time模块可用
@@ -1252,4 +1276,4 @@ if __name__ == "__main__":
         timeout_graceful_shutdown=300,  # 优雅关闭超时5分钟
         limit_max_requests=None,  # 不限制最大请求数
         limit_concurrency=None   # 不限制并发数
-    ) 
+    )
