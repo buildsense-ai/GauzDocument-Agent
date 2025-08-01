@@ -386,6 +386,22 @@ app.use('/api/stream', createProxyMiddleware({
     }
 }));
 
+// 🤖 AI编辑器API代理
+app.use('/api/ai-editor', createProxyMiddleware({
+    target: 'http://localhost:8001',
+    changeOrigin: true,
+    onError: (err, req, res) => {
+        console.error('❌ AI编辑器代理错误:', err);
+        res.status(500).json({
+            success: false,
+            error: 'AI编辑器服务连接失败: ' + err.message
+        });
+    },
+    onProxyReq: (proxyReq, req, res) => {
+        console.log('🤖 AI编辑器代理请求:', req.method, req.url);
+    }
+}));
+
 // 状态检查API - 直接转发到ReactAgent 服务器
 app.get('/api/status', async (req, res) => {
     try {
@@ -758,4 +774,4 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
     console.log('\n🛑 正在关闭服务器...');
     process.exit(0);
-}); 
+});

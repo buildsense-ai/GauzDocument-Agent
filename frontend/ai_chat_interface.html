@@ -6,7 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>工程AI助手 - 升级版紫色主题</title>
 
+    <!-- 📌 已更新为您的CSS文件路径 -->
     <link rel="stylesheet" href="css/ai_chat_interface.css">
+    
     <!-- 🆕 引入marked.js库用于Markdown解析 - 稳定版本 -->
     <script src="https://cdn.jsdelivr.net/npm/marked@16.1.1/lib/marked.umd.min.js"
         onerror="loadMarkedFromBackup()"></script>
@@ -14,7 +16,7 @@
     <!-- 🔧 引入diff-match-patch库用于文本差异比较 -->
     <script src="libs/diff_match_patch.js"></script>
 
-    <!-- 🔧 备用CDN和错误处理 -->
+    <!-- 🔧 备用CDN和错误处理 (已保留) -->
     <script>
         // 备用CDN加载函数
         function loadMarkedFromBackup() {
@@ -294,7 +296,7 @@
                     <button class="editor-btn" onclick="insertMarkdownTemplate()">
                         <span>📝</span> 插入模板
                     </button>
-                    <button class="editor-btn ai-btn" onclick="openAIEditor()">
+                    <button class="editor-btn ai-btn" onclick="initiateAIEdit()">
                         <span>🤖</span> AI编辑
                     </button>
                     <button class="editor-btn" onclick="downloadEditedContent()">
@@ -305,6 +307,43 @@
                     </button>
                 </div>
             </div>
+
+            <!-- ⭐️⭐️⭐️ 全新的AI编辑面板 ⭐️⭐️⭐️ -->
+            <div id="aiCommandPanel" class="ai-command-panel">
+                <div class="ai-panel-header">
+                    <h3>🤖 AI 编辑模式</h3>
+                    <button class="ai-panel-close" onclick="closeAICommandPanel()">×</button>
+                </div>
+                <div class="ai-panel-content">
+                    <div class="ai-panel-group">
+                        <label>已选中文本</label>
+                        <div id="aiSelectedTextPreview" class="ai-selected-text-preview">请在左侧编辑器选择文本...</div>
+                    </div>
+                    <div class="ai-panel-group">
+                        <label for="aiCommandInput">修改要求</label>
+                        <textarea id="aiCommandInput" class="ai-command-input" placeholder="请描述您希望AI如何修改这段文本..."></textarea>
+                    </div>
+                </div>
+                <div id="aiDiffViewContainer" class="ai-diff-view-container">
+                    <!-- AI生成的差异对比将显示在这里 -->
+                </div>
+                <div class="ai-panel-footer">
+                    <div id="aiPanelActions">
+                        <button class="ai-panel-btn" id="aiProcessBtn" onclick="processAIEdit()">
+                            <span>✨</span> 生成修改
+                        </button>
+                    </div>
+                    <div id="aiDiffActions" style="display: none;">
+                        <button class="ai-panel-btn reject" onclick="rejectAIEdit()">
+                            <span>❌</span> 拒绝
+                        </button>
+                        <button class="ai-panel-btn accept" onclick="acceptAIEdit()">
+                            <span>✅</span> 接受
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <!-- ⭐️⭐️⭐️ AI编辑面板结束 ⭐️⭐️⭐️ -->
 
             <div class="editor-content">
                 <div class="editor-pane">
@@ -325,71 +364,10 @@
         </div>
     </div>
 
-    <!-- 🆕 AI编辑器模态窗口 -->
-    <div id="aiEditorModal" class="modal-overlay" style="display: none;">
-        <div class="modal-content ai-editor-modal">
-            <div class="modal-header">
-                <h2 class="modal-title">
-                    <span class="title-icon">🤖</span>
-                    <span>AI智能编辑</span>
-                </h2>
-                <button class="modal-close" onclick="closeAIEditor()">×</button>
-            </div>
-
-            <div class="ai-editor-toolbar">
-                <div class="ai-editor-info">
-                    <span id="aiEditorStatus">请选择要编辑的文本段落</span>
-                </div>
-                <div class="ai-editor-actions">
-                    <button class="ai-btn" onclick="processAIEdit()" id="processAIBtn">
-                        <span>✨</span> 开始AI处理
-                    </button>
-                    <button class="ai-btn secondary" onclick="closeAIEditor()">
-                        <span>❌</span> 关闭
-                    </button>
-                </div>
-            </div>
-
-            <div class="ai-editor-content">
-                <div class="ai-input-section">
-                    <div class="input-group">
-                        <label for="aiOriginalText">选中的文本段落：</label>
-                        <textarea id="aiOriginalText" class="ai-textarea" placeholder="请在编辑器中选择要修改的文本段落..." readonly></textarea>
-                    </div>
-                    <div class="input-group">
-                        <label for="aiRequest">修改要求：</label>
-                        <textarea id="aiRequest" class="ai-textarea" placeholder="请描述您希望AI如何修改这段文本，例如：\n- 使语言更专业\n- 增加技术细节\n- 简化表达\n- 修正语法错误\n等等..."></textarea>
-                    </div>
-                </div>
-
-                <div class="ai-diff-section">
-                    <div class="diff-header">
-                        <h3>📊 修改对比</h3>
-                        <div class="diff-legend">
-                            <span class="legend-item original">🟠 原文</span>
-                            <span class="legend-item modified">🟢 AI修改</span>
-                        </div>
-                    </div>
-                    <div class="diff-container" id="aiDiffContainer">
-                        <!-- diff内容将在这里显示 -->
-                    </div>
-                    <div class="diff-actions">
-                        <button class="ai-btn secondary" id="aiRejectBtn" onclick="rejectAIEdit()" style="display: none;">
-                            <span>❌</span> 拒绝修改
-                        </button>
-                        <button class="ai-btn primary" id="aiAcceptBtn" onclick="acceptAIEdit()" style="display: none;">
-                            <span>✅</span> 接受修改
-                        </button>
-                        <button class="ai-btn" onclick="processAIEdit()">
-                            <span>🔄</span> 重新生成
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- AI编辑器模态窗口已被删除 -->
 
     <script src="libs/diff_match_patch.js"></script>
+    <script src="ai_selectorJS/ai_editor.js"></script>
     <script src="ai_chat_script.js"></script>
 </body>
 
