@@ -1478,6 +1478,7 @@
             height: 90vh;
             max-width: none;
             max-height: none;
+            overflow: visible;
         }
 
         .editor-toolbar {
@@ -1524,7 +1525,6 @@
         .editor-content {
             flex: 1;
             display: flex;
-            overflow: hidden;
         }
 
         .editor-pane {
@@ -1557,6 +1557,7 @@
             line-height: 1.5;
             background: var(--bg-primary);
             color: var(--text-primary);
+            overflow-y: auto;
         }
 
         .editor-preview {
@@ -1750,6 +1751,246 @@
             .image-container {
                 max-width: 250px;
             }
+        }
+
+        /* AI编辑器样式 */
+        .ai-editor-modal {
+            width: 95%;
+            max-width: 1200px;
+            height: 85vh;
+            max-height: 800px;
+        }
+
+        .ai-editor-toolbar {
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .ai-editor-info {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .ai-editor-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .ai-btn {
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+            color: var(--text-inverse);
+            border: 1px solid var(--primary-color);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .ai-btn:hover {
+            background: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 100%);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .ai-btn:disabled {
+            background: var(--bg-secondary);
+            color: var(--text-tertiary);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .ai-btn.secondary {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+
+        .ai-btn.secondary:hover {
+            background: var(--bg-hover);
+            border-color: var(--primary-color);
+            transform: none;
+        }
+
+        .ai-btn.primary {
+            background: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+        .ai-btn.primary:hover {
+            background: var(--primary-hover);
+        }
+
+        .ai-editor-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: visible;
+        }
+
+        .ai-input-section {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .input-group {
+            margin-bottom: 16px;
+        }
+
+        .input-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .ai-textarea {
+            width: 100%;
+            min-height: 80px;
+            max-height: 200px;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 14px;
+            line-height: 1.5;
+            resize: vertical;
+            transition: border-color 0.2s;
+            overflow-y: scroll;
+        }
+
+        .ai-textarea:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.1);
+        }
+
+        .ai-textarea[readonly] {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+        }
+
+        .ai-diff-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .diff-header {
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .diff-header h3 {
+            margin: 0;
+            color: var(--text-primary);
+            font-size: 16px;
+        }
+
+        .diff-legend {
+            display: flex;
+            gap: 16px;
+        }
+
+        .legend-item {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .legend-item.original {
+            background: rgba(255, 165, 0, 0.1);
+            color: #ff8c00;
+        }
+
+        .legend-item.modified {
+            background: rgba(34, 197, 94, 0.1);
+            color: #22c55e;
+        }
+
+        .diff-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: var(--bg-primary);
+        }
+
+        .diff-line {
+            padding: 4px 8px;
+            margin: 2px 0;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .diff-line.original {
+            background: rgba(255, 165, 0, 0.1);
+            border-left: 3px solid #ff8c00;
+        }
+
+        .diff-line.modified {
+            background: rgba(34, 197, 94, 0.1);
+            border-left: 3px solid #22c55e;
+        }
+
+        .diff-line.unchanged {
+            background: transparent;
+            color: var(--text-secondary);
+        }
+
+        .diff-actions {
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+        }
+
+        /* 加载状态 */
+        .ai-loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        .ai-loading-spinner {
+            width: 24px;
+            height: 24px;
+            border: 2px solid var(--border-color);
+            border-top: 2px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 12px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
@@ -2012,6 +2253,9 @@
                     <button class="editor-btn" onclick="insertMarkdownTemplate()">
                         <span>📝</span> 插入模板
                     </button>
+                    <button class="editor-btn ai-btn" onclick="openAIEditor()">
+                        <span>🤖</span> AI编辑
+                    </button>
                     <button class="editor-btn" onclick="downloadEditedContent()">
                         <span>💾</span> 下载
                     </button>
@@ -2040,6 +2284,71 @@
         </div>
     </div>
 
+    <!-- 🆕 AI编辑器模态窗口 -->
+    <div id="aiEditorModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content ai-editor-modal">
+            <div class="modal-header">
+                <h2 class="modal-title">
+                    <span class="title-icon">🤖</span>
+                    <span>AI智能编辑</span>
+                </h2>
+                <button class="modal-close" onclick="closeAIEditor()">×</button>
+            </div>
+
+            <div class="ai-editor-toolbar">
+                <div class="ai-editor-info">
+                    <span id="aiEditorStatus">请选择要编辑的文本段落</span>
+                </div>
+                <div class="ai-editor-actions">
+                    <button class="ai-btn" onclick="processAIEdit()" id="processAIBtn">
+                        <span>✨</span> 开始AI处理
+                    </button>
+                    <button class="ai-btn secondary" onclick="closeAIEditor()">
+                        <span>❌</span> 关闭
+                    </button>
+                </div>
+            </div>
+
+            <div class="ai-editor-content">
+                <div class="ai-input-section">
+                    <div class="input-group">
+                        <label for="aiOriginalText">选中的文本段落：</label>
+                        <textarea id="aiOriginalText" class="ai-textarea" placeholder="请在编辑器中选择要修改的文本段落..." readonly></textarea>
+                    </div>
+                    <div class="input-group">
+                        <label for="aiRequest">修改要求：</label>
+                        <textarea id="aiRequest" class="ai-textarea" placeholder="请描述您希望AI如何修改这段文本，例如：\n- 使语言更专业\n- 增加技术细节\n- 简化表达\n- 修正语法错误\n等等..."></textarea>
+                    </div>
+                </div>
+
+                <div class="ai-diff-section">
+                    <div class="diff-header">
+                        <h3>📊 修改对比</h3>
+                        <div class="diff-legend">
+                            <span class="legend-item original">🟠 原文</span>
+                            <span class="legend-item modified">🟢 AI修改</span>
+                        </div>
+                    </div>
+                    <div class="diff-container" id="aiDiffContainer">
+                        <!-- diff内容将在这里显示 -->
+                    </div>
+                    <div class="diff-actions">
+                        <button class="ai-btn secondary" id="aiRejectBtn" onclick="rejectAIEdit()" style="display: none;">
+                            <span>❌</span> 拒绝修改
+                        </button>
+                        <button class="ai-btn primary" id="aiAcceptBtn" onclick="acceptAIEdit()" style="display: none;">
+                            <span>✅</span> 接受修改
+                        </button>
+                        <button class="ai-btn" onclick="processAIEdit()">
+                            <span>🔄</span> 重新生成
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="libs/diff_match_patch.js"></script>
     <script src="ai_chat_script.js"></script>
 </body>
 

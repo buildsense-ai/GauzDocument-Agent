@@ -6,6 +6,7 @@ from typing import Dict, Any, List
 import httpx
 import json
 from deepseek_client import DeepSeekClient
+from qwen_client import QwenClient
 
 # 创建路由器
 router = APIRouter(prefix="/api/ai-editor", tags=["ai-editor"])
@@ -88,22 +89,29 @@ async def ai_editor(plain_text: List[str], request: str, project_name: str, sear
         # 第二次：使用原始request搜索
         rag_info_original = await get_rag_info(request, project_name, search_type, 5)
         
-        # TODO: 这里应该调用AI模型进行文本编辑
-        # 目前先返回一个包含所有信息的占位符结果
+        # 3. 使用Qwen-long模型生成优化后的文本
+        qwen_client = QwenClient()
+        optimized_text = await generate_optimized_text(
+            qwen_client=qwen_client,
+            plain_text=plain_text,
+            request=request,
+            keywords=keywords,
+            rag_info_keywords=rag_info_keywords,
+            rag_info_original=rag_info_original
+        )
+        
         result = f"""AI编辑器处理结果：
 原文本数量: {len(plain_text)}
 用户请求: {request}
 提取的关键词: {keywords}
 项目名称: {project_name}
 
-=== 关键词RAG搜索结果 ===
-{rag_info_keywords[:300]}...
+=== 优化后的文本 ===
+{optimized_text}
 
-=== 原始请求RAG搜索结果 ===
-{rag_info_original[:300]}...
-
-=== 处理后的文本 ===
-{chr(10).join(f"{i+1}. {text}" for i, text in enumerate(plain_text))}"""
+=== 参考资料摘要 ===
+关键词搜索结果: {rag_info_keywords[:200]}...
+原始请求搜索结果: {rag_info_original[:200]}..."""
         
         return result
         
@@ -153,6 +161,73 @@ async def get_rag_info(query: str, project_name: str, search_type: str = "hybrid
                 
     except Exception as e:
         return f"RAG API调用异常: {str(e)}"
+
+
+async def generate_optimized_text(
+    qwen_client: QwenClient,
+    plain_text: List[str],
+    request: str,
+    keywords: str,
+    rag_info_keywords: str,
+    rag_info_original: str
+) -> str:
+    """
+    使用Qwen-long模型生成优化后的文本
+    
+    Args:
+        qwen_client: Qwen客户端实例
+        plain_text: 原始文本列表
+        request: 用户请求
+        keywords: 提取的关键词
+        rag_info_keywords: 关键词RAG搜索结果
+        rag_info_original: 原始请求RAG搜索结果
+    
+    Returns:
+        优化后的文本
+    """
+    try:
+        # 构建系统提示词
+        system_prompt = """你是一个专业的文档编辑助手。你的任务是根据用户的要求和提供的参考资料，对原始文本进行优化和改进。
+"""
+        
+        # 构建用户提示词
+        user_prompt = f"""请根据以下信息优化文本：
+
+【用户要求】
+{request}
+
+【提取的关键词】
+{keywords}
+
+【原始文本】
+{chr(10).join(f"{i+1}. {text}" for i, text in enumerate(plain_text))}
+
+【参考资料1 - 关键词搜索结果】
+{rag_info_keywords[:1000]}
+
+【参考资料2 - 原始请求搜索结果】
+{rag_info_original[:1000]}
+
+请基于上述信息，生成优化后的文本段落："""
+        
+        # 调用Qwen-long模型
+        print(f"开始调用Qwen模型，用户提示词长度: {len(user_prompt)}")
+        print(f"系统提示词: {system_prompt[:100]}...")
+        
+        optimized_result = await qwen_client.simple_chat(
+            user_message=user_prompt,
+            system_message=system_prompt
+        )
+        
+        print(f"Qwen模型返回结果长度: {len(optimized_result)}")
+        print(f"返回结果前100字符: {optimized_result[:100]}...")
+        
+        return optimized_result.strip()
+        
+    except Exception as e:
+        # 如果AI生成失败，抛出异常让用户知道真正的错误原因
+        print(f"文本优化失败: {e}")
+        raise Exception(f"AI文本生成失败: {str(e)}。请检查AI模型配置和网络连接。")
 
 
 async def extract_keywords_from_request(deepseek_client: DeepSeekClient, request: str) -> str:

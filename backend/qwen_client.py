@@ -21,11 +21,11 @@ class QwenClient:
             api_key: Qwen API密钥，如果不提供则从环境变量QWEN_API_KEY获取
             base_url: API基础URL, 默认为阿里云通义千问的URL
         """
-        self.api_key = api_key or os.getenv("QWEN_API_KEY")
+        self.api_key = api_key or os.getenv("DASHSCOPE_API_KEY")
         self.base_url = base_url
         
         if not self.api_key:
-            raise ValueError("Qwen API密钥未设置，请设置环境变量QWEN_API_KEY或传入api_key参数")
+            raise ValueError("Qwen API密钥未设置，请设置环境变量DASHSCOPE_API_KEY或传入api_key参数")
         
         self.headers = {
             "Content-Type": "application/json",
@@ -167,22 +167,22 @@ class QwenClient:
         messages.append({"role": "user", "content": user_message})
         
         try:
-            # 这是一个关键的改动，将 await self.chat_completion(messages) 
-            # 替换为 self.chat_completion_sync(messages)
-            # 因为 main 函数中用 asyncio.run 运行的是一个异步环境，但 simple_chat 里的 requests.post 调用是同步的
-            # 然而，当 simple_chat 里的 chat_completion 方法里切换成 aiohttp 异步请求时，
-            # chat_completion_sync 里的 requests.post 又是同步的。
-            # 这是因为我在最初的实现中犯了一个错误，没有严格区分同步和异步的请求调用方式
-            # 在此，我修改 simple_chat 方法，使其成为一个同步方法，并调用同步的 chat_completion_sync 方法。
-            # 这样，您就可以在 simple_chat 方法中获得正确的返回格式
-            response = self.chat_completion_sync(messages)
+            # 使用真正的异步方法
+            response = await self.chat_completion(messages)
             
+            # 处理DashScope API的标准响应格式
+            if "output" in response and "choices" in response["output"]:
+                choices = response["output"]["choices"]
+                if choices and len(choices) > 0 and "message" in choices[0] and "content" in choices[0]["message"]:
+                    return choices[0]["message"]["content"]
+            
+            # 兼容其他可能的响应格式
             if "output" in response and "text" in response["output"]:
                 return response["output"]["text"]
-            else:
-                # 打印整个响应，方便调试
-                print("原始API返回:", json.dumps(response, indent=2, ensure_ascii=False))
-                raise Exception("Qwen API返回格式异常：缺少output或text字段")
+            
+            # 打印整个响应，方便调试
+            print("原始API返回:", json.dumps(response, indent=2, ensure_ascii=False))
+            raise Exception("Qwen API返回格式异常：无法提取回复内容")
                 
         except Exception as e:
             raise Exception(f"简单聊天调用失败: {str(e)}")

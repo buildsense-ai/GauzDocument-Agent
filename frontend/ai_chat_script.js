@@ -4307,4 +4307,250 @@ window.insertMarkdownTemplate = insertMarkdownTemplate;
 window.downloadEditedContent = downloadEditedContent;
 window.saveEditedDocument = saveEditedDocument;
 
+// AI编辑器相关变量
+let aiEditorModal = null;
+let dmp = null; // diff_match_patch实例
+let currentAIEditText = '';
+let currentAIRequest = '';
+let currentDiffResult = null;
+
+// 初始化diff_match_patch库
+function initializeDiffMatchPatch() {
+    if (typeof diff_match_patch !== 'undefined') {
+        dmp = new diff_match_patch();
+        console.log('✅ diff_match_patch库已初始化');
+    } else {
+        console.warn('⚠️ diff_match_patch库未找到，请确保已加载');
+    }
+}
+
+// 打开AI编辑器
+function openAIEditor() {
+    const editorTextarea = document.getElementById('markdownEditor');
+    if (!editorTextarea) {
+        showNotification('请先打开文档编辑器', 'error');
+        return;
+    }
+
+    const selectedText = getSelectedText(editorTextarea);
+    const textToEdit = selectedText || editorTextarea.value;
+    
+    if (!textToEdit.trim()) {
+        showNotification('请选择要编辑的文本或确保编辑器中有内容', 'warning');
+        return;
+    }
+
+    currentAIEditText = textToEdit;
+    showAIEditorModal();
+}
+
+// 获取选中的文本
+function getSelectedText(textarea) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    return textarea.value.substring(start, end);
+}
+
+// 显示AI编辑器模态框
+function showAIEditorModal() {
+    aiEditorModal = document.getElementById('aiEditorModal');
+    if (!aiEditorModal) {
+        console.error('AI编辑器模态框未找到');
+        return;
+    }
+
+    // 重置界面
+    document.getElementById('aiOriginalText').value = currentAIEditText;
+    document.getElementById('aiRequest').value = '';
+    document.getElementById('aiDiffContainer').innerHTML = '';
+    document.getElementById('aiAcceptBtn').style.display = 'none';
+    document.getElementById('aiRejectBtn').style.display = 'none';
+    
+    aiEditorModal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+// 关闭AI编辑器
+function closeAIEditor() {
+    if (aiEditorModal) {
+        aiEditorModal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }
+    currentDiffResult = null;
+}
+
+// 处理AI编辑请求
+async function processAIEdit() {
+    const requestText = document.getElementById('aiRequest').value.trim();
+    if (!requestText) {
+        showNotification('请输入修改要求', 'warning');
+        return;
+    }
+
+    currentAIRequest = requestText;
+    
+    // 显示加载状态
+    const diffContainer = document.getElementById('aiDiffContainer');
+    diffContainer.innerHTML = `
+        <div class="ai-loading">
+            <div class="ai-loading-spinner"></div>
+            <span>AI正在处理您的请求...</span>
+        </div>
+    `;
+
+    try {
+        // 调用AI编辑API
+        const response = await fetch('/api/ai-editor/process', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                plain_text: [currentAIEditText],
+                request: currentAIRequest,
+                project_name: currentProject?.name || '默认项目',
+                search_type: 'hybrid',
+                top_k: 5
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`API请求失败: ${response.status}`);
+        }
+
+        const result = await response.json();
+        const optimizedText = result.result || currentAIEditText;
+        
+        // 生成并显示diff
+        generateAndDisplayDiff(currentAIEditText, optimizedText);
+        
+    } catch (error) {
+        console.error('AI编辑请求失败:', error);
+        diffContainer.innerHTML = `
+            <div class="ai-loading" style="color: var(--error-color);">
+                <span>❌ 处理失败: ${error.message}</span>
+            </div>
+        `;
+    }
+}
+
+// 生成并显示diff
+function generateAndDisplayDiff(originalText, modifiedText) {
+    if (!dmp) {
+        initializeDiffMatchPatch();
+        if (!dmp) {
+            showNotification('diff_match_patch库未加载，无法显示差异', 'error');
+            return;
+        }
+    }
+
+    // 生成diff
+    const diffs = dmp.diff_main(originalText, modifiedText);
+    dmp.diff_cleanupSemantic(diffs);
+    
+    currentDiffResult = {
+        original: originalText,
+        modified: modifiedText,
+        diffs: diffs
+    };
+
+    // 显示diff结果
+    displayDiffResult(diffs);
+    
+    // 显示操作按钮
+    document.getElementById('aiAcceptBtn').style.display = 'inline-flex';
+    document.getElementById('aiRejectBtn').style.display = 'inline-flex';
+}
+
+// 显示diff结果
+function displayDiffResult(diffs) {
+    const diffContainer = document.getElementById('aiDiffContainer');
+    let html = '';
+    
+    for (let i = 0; i < diffs.length; i++) {
+        const [operation, text] = diffs[i];
+        const escapedText = escapeHtml(text);
+        
+        switch (operation) {
+            case 1: // 插入 (新增的内容)
+                html += `<div class="diff-line modified">${escapedText}</div>`;
+                break;
+            case -1: // 删除 (原有的内容)
+                html += `<div class="diff-line original">${escapedText}</div>`;
+                break;
+            case 0: // 不变
+                html += `<div class="diff-line unchanged">${escapedText}</div>`;
+                break;
+        }
+    }
+    
+    diffContainer.innerHTML = html;
+}
+
+// HTML转义
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 接受AI修改
+function acceptAIEdit() {
+    if (!currentDiffResult) {
+        showNotification('没有可接受的修改', 'warning');
+        return;
+    }
+
+    const editorTextarea = document.getElementById('markdownEditor');
+    if (!editorTextarea) {
+        showNotification('编辑器未找到', 'error');
+        return;
+    }
+
+    // 替换文本
+    const originalText = currentAIEditText;
+    const modifiedText = currentDiffResult.modified;
+    const currentContent = editorTextarea.value;
+    
+    // 如果是选中的文本，只替换选中部分
+    const selectedText = getSelectedText(editorTextarea);
+    if (selectedText && selectedText === originalText) {
+        const start = editorTextarea.selectionStart;
+        const end = editorTextarea.selectionEnd;
+        const newContent = currentContent.substring(0, start) + modifiedText + currentContent.substring(end);
+        editorTextarea.value = newContent;
+        
+        // 设置新的选中范围
+        editorTextarea.setSelectionRange(start, start + modifiedText.length);
+    } else {
+        // 替换整个内容
+        editorTextarea.value = modifiedText;
+    }
+
+    // 触发输入事件以更新预览
+    editorTextarea.dispatchEvent(new Event('input'));
+    
+    showNotification('已接受AI修改', 'success');
+    closeAIEditor();
+}
+
+// 拒绝AI修改
+function rejectAIEdit() {
+    showNotification('已拒绝AI修改', 'info');
+    closeAIEditor();
+}
+
+// 导出AI编辑器函数到全局
+window.openAIEditor = openAIEditor;
+window.closeAIEditor = closeAIEditor;
+window.processAIEdit = processAIEdit;
+window.acceptAIEdit = acceptAIEdit;
+window.rejectAIEdit = rejectAIEdit;
+
+// 初始化diff_match_patch
+document.addEventListener('DOMContentLoaded', function() {
+    initializeDiffMatchPatch();
+});
+
 console.log('✏️ 文档编辑器功能已加载！');
+console.log('🤖 AI编辑器功能已加载！');
