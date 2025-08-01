@@ -42,6 +42,9 @@ from database.utils import setup_database, check_database_health
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
+# 🆕 导入路由模块
+from routers import ai_editor
+
 # 全局会话管理
 active_sessions: Dict[str, Dict[str, Any]] = {}
 
@@ -117,6 +120,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 🆕 注册路由
+app.include_router(ai_editor.router)
 
 # 全局变量
 deepseek_client = None

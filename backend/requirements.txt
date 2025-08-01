@@ -14,4 +14,5 @@ pymysql==1.1.0
 asyncpg==0.29.0
 # 新增其他工具
 markdown==3.5.1
-bleach==6.1.0 
+bleach==6.1.0
+httpx==0.25.2
