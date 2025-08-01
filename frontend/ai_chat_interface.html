@@ -534,46 +534,6 @@
             margin-bottom: 32px;
         }
 
-        .prompt-options {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 16px;
-            max-width: 600px;
-            width: 100%;
-        }
-
-        .prompt-option {
-            padding: 20px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .prompt-option:hover {
-            background: var(--bg-active);
-            border-color: var(--primary-color);
-            transform: translateY(-2px);
-        }
-
-        .prompt-icon {
-            font-size: 24px;
-            margin-bottom: 8px;
-        }
-
-        .prompt-title {
-            font-size: 16px;
-            font-weight: 500;
-            color: var(--text-primary);
-            margin-bottom: 4px;
-        }
-
-        .prompt-desc {
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-
         .chat-messages {
             display: none;
         }
@@ -2061,33 +2021,7 @@
             <div class="chat-container">
                 <div class="welcome-prompts" id="welcomePrompts">
                     <div class="welcome-title">欢迎使用AI生成文档助手</div>
-                    <div class="welcome-subtitle">点击左侧"新建对话"开始，或选择下方场景快速开始</div>
-
-                    <div class="prompt-options">
-                        <div class="prompt-option" onclick="startChat('文档生成')">
-                            <div class="prompt-icon">📝</div>
-                            <div class="prompt-title">文档生成</div>
-                            <div class="prompt-desc">生成各类专业文档、报告和方案</div>
-                        </div>
-
-                        <div class="prompt-option" onclick="startChat('文档分析')">
-                            <div class="prompt-icon">🔍</div>
-                            <div class="prompt-title">文档分析</div>
-                            <div class="prompt-desc">分析上传的文档内容并提供见解</div>
-                        </div>
-
-                        <div class="prompt-option" onclick="startChat('内容总结')">
-                            <div class="prompt-icon">📄</div>
-                            <div class="prompt-title">内容总结</div>
-                            <div class="prompt-desc">对长文档进行总结和要点提取</div>
-                        </div>
-
-                        <div class="prompt-option" onclick="startChat('格式转换')">
-                            <div class="prompt-icon">🔄</div>
-                            <div class="prompt-title">格式转换</div>
-                            <div class="prompt-desc">将文档转换为不同格式和结构</div>
-                        </div>
-                    </div>
+                    <div class="welcome-subtitle">点击左侧"新建对话"开始您的工作流</div>
                 </div>
 
                 <div class="chat-messages" id="chatMessages">
@@ -2234,7 +2168,7 @@
         </div>
     </div>
 
-    <!-- 🆕 文档编辑器模态窗口 -->
+    <!-- � 文档编辑器模态窗口 -->
     <div id="documentEditorModal" class="modal-overlay" style="display: none;">
         <div class="modal-content editor-modal">
             <div class="modal-header">
