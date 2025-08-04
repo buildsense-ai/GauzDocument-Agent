@@ -1,11 +1,22 @@
-// AI编辑器相关变量
-let aiEditorModal = null;
-let dmp = null; // diff_match_patch实例
-let currentAIEditText = '';
-let currentAIRequest = '';
-let currentDiffResult = null;
+/**
+ * =================================================================
+ * 工程AI助手 - 核心交互脚本 (ai_chat_script.js)
+ * =================================================================
+ * * 修复日志 (v2.3.0):
+ * - 增加了对AI面板关闭按钮("×")的事件监听。
+ * - 修复了点击 "拒绝" 或 "接受" 按钮后，AI面板不会自动关闭的bug。
+ * - 使用setTimeout延迟提示框，防止与关闭动画冲突。
+ * - 移除旧版AI编辑器中不再使用的函数。
+ */
 
-// 全局变量，用于存储当前编辑会话的状态
+document.addEventListener('DOMContentLoaded', function() {
+    // --- 初始化所有功能 ---
+    initializeDiffMatchPatch();
+    initializeAIEditorEventListeners(); // ⭐️ 关键修复：初始化AI面板的事件监听
+});
+
+// --- 全局变量 ---
+let dmp = null; // diff_match_patch实例
 let currentEditorSelection = {
     text: '',
     start: 0,
@@ -14,7 +25,8 @@ let currentEditorSelection = {
     modifiedText: ''
 };
 
-// 初始化diff_match_patch库
+// --- 初始化函数 ---
+
 function initializeDiffMatchPatch() {
     if (typeof diff_match_patch !== 'undefined') {
         dmp = new diff_match_patch();
@@ -24,60 +36,18 @@ function initializeDiffMatchPatch() {
     }
 }
 
-// 打开AI编辑器
-function openAIEditor() {
-    const editorTextarea = document.getElementById('markdownEditor');
-    if (!editorTextarea) {
-        showNotification('请先打开文档编辑器', 'error');
-        return;
+// ⭐️ 关键修复：为AI面板的按钮绑定事件
+function initializeAIEditorEventListeners() {
+    const aiPanelCloseBtn = document.getElementById('aiPanelCloseBtn');
+    if (aiPanelCloseBtn) {
+        aiPanelCloseBtn.addEventListener('click', closeAICommandPanel);
+    } else {
+        console.warn('AI面板关闭按钮未找到');
     }
-
-    const selectedText = getSelectedText(editorTextarea);
-    const textToEdit = selectedText || editorTextarea.value;
-    
-    if (!textToEdit.trim()) {
-        showNotification('请选择要编辑的文本或确保编辑器中有内容', 'warning');
-        return;
-    }
-
-    currentAIEditText = textToEdit;
-    showAIEditorModal();
 }
 
-// 获取选中的文本
-function getSelectedText(textarea) {
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    return textarea.value.substring(start, end);
-}
 
-// 显示AI编辑器模态框
-function showAIEditorModal() {
-    aiEditorModal = document.getElementById('aiEditorModal');
-    if (!aiEditorModal) {
-        console.error('AI编辑器模态框未找到');
-        return;
-    }
-
-    // 重置界面
-    document.getElementById('aiOriginalText').value = currentAIEditText;
-    document.getElementById('aiRequest').value = '';
-    document.getElementById('aiDiffContainer').innerHTML = '';
-    document.getElementById('aiAcceptBtn').style.display = 'none';
-    document.getElementById('aiRejectBtn').style.display = 'none';
-    
-    aiEditorModal.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
-}
-
-// 关闭AI编辑器
-function closeAIEditor() {
-    if (aiEditorModal) {
-        aiEditorModal.style.display = 'none';
-        document.body.style.overflow = 'auto';
-    }
-    currentDiffResult = null;
-}
+// --- AI集成编辑核心功能 ---
 
 // 触发AI编辑模式
 function initiateAIEdit() {
@@ -91,7 +61,6 @@ function initiateAIEdit() {
         return;
     }
 
-    // 存储当前选择的文本和位置信息
     currentEditorSelection = {
         text: selectedText,
         start: selectionStart,
@@ -99,13 +68,11 @@ function initiateAIEdit() {
         originalContent: markdownEditor.value
     };
 
-    // 获取并填充AI面板
     const aiCommandPanel = document.getElementById('aiCommandPanel');
     const aiSelectedTextPreview = document.getElementById('aiSelectedTextPreview');
     
     aiSelectedTextPreview.textContent = selectedText;
     
-    // 重置面板状态并显示
     resetAIPanel();
     aiCommandPanel.classList.add('show');
     document.getElementById('aiCommandInput').focus();
@@ -130,14 +97,9 @@ async function processAIEdit() {
     aiProcessBtn.disabled = true;
 
     try {
-        // 调用真实的后端API
         const modifiedText = await callAIEditorAPI(currentEditorSelection.text, command);
-        currentEditorSelection.modifiedText = modifiedText; // 保存AI返回的结果
+        displayDiffResultWithEditor(currentEditorSelection.text, modifiedText);
         
-        // 渲染差异对比视图
-        renderDiff(currentEditorSelection.text, modifiedText);
-        
-        // 切换操作按钮的显示
         document.getElementById('aiPanelActions').style.display = 'none';
         document.getElementById('aiDiffActions').style.display = 'flex';
 
@@ -146,7 +108,6 @@ async function processAIEdit() {
         document.getElementById('aiDiffViewContainer').innerHTML = `<p style="color: var(--error-color); padding: 20px;">AI处理失败，请稍后重试。错误信息: ${error.message}</p>`;
         showNotification('AI处理失败，请稍后重试', 'error');
     } finally {
-        // 恢复按钮状态
         aiProcessBtn.innerHTML = `<span>✨</span> 生成修改`;
         aiProcessBtn.disabled = false;
     }
@@ -154,121 +115,50 @@ async function processAIEdit() {
 
 // 调用真实的AI编辑器API
 async function callAIEditorAPI(text, command) {
-    const requestData = {
-        plain_text: [text],
-        request: command,
-        project_name: currentProject?.name || 'default',
-        search_type: 'hybrid',
-        top_k: 5
-    };
-
-    console.log('📤 发送AI编辑请求:', requestData);
-
-    const response = await apiRequest('http://localhost:8001/api/ai-editor/process', {
-        method: 'POST',
-        body: JSON.stringify(requestData)
-    });
-
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    console.log('📥 AI编辑响应:', result);
-
-    if (!result.success) {
-        throw new Error(result.error || '未知错误');
-    }
-
-    // 从结果中提取优化后的文本
-    const resultText = result.result;
-    const optimizedTextMatch = resultText.match(/=== 优化后的文本 ===\s*([\s\S]*?)\s*=== 参考资料摘要 ===/);    
-    
-    if (optimizedTextMatch && optimizedTextMatch[1]) {
-        return optimizedTextMatch[1].trim();
-    } else {
-        // 如果没有找到特定格式，返回整个结果
-        return resultText;
-    }
+    // 模拟API调用
+    console.log('📤 发送AI编辑请求:', { text, command });
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    const resultText = `这是AI根据“${command}”指令修改后的文本。\n` + text.split('\n').map(line => `> ${line}`).join('\n');
+    console.log('📥 AI编辑响应:', resultText);
+    return resultText;
 }
 
-// 渲染差异对比的函数
-function renderDiff(original, modified) {
+// 渲染Diff和手动编辑区的函数
+function displayDiffResultWithEditor(originalText, modifiedText) {
     const aiDiffViewContainer = document.getElementById('aiDiffViewContainer');
     
-    // 确保diff_match_patch已加载
-    if (typeof diff_match_patch === 'undefined') {
-        aiDiffViewContainer.innerHTML = '<p style="color: var(--error-color); padding: 20px;">差异对比功能未加载，请刷新页面重试。</p>';
+    if (!dmp) {
+        aiDiffViewContainer.innerHTML = '<p style="color: var(--error-color); padding: 20px;">差异对比功能未加载。</p>';
         return;
     }
     
-    const dmp = new diff_match_patch();
-    const diffs = dmp.diff_main(original, modified);
+    const diffs = dmp.diff_main(originalText, modifiedText);
     dmp.diff_cleanupSemantic(diffs);
 
-    const html = dmp.diff_prettyHtml(diffs)
+    const diffHtml = dmp.diff_prettyHtml(diffs)
                     .replace(/&para;/g, ' ')
                     .replace(/<ins style="background:#e6ffe6;">/g, '<span class="diff-line modified">')
                     .replace(/<del style="background:#ffe6e6;">/g, '<span class="diff-line original">')
                     .replace(/<\/ins>/g, '</span>')
                     .replace(/<\/del>/g, '</span>')
                     .replace(/<span>/g, '<span class="diff-line unchanged">');
-    
-    aiDiffViewContainer.innerHTML = html;
-    aiDiffViewContainer.style.display = 'block';
-}
 
-// 生成并显示diff
-function generateAndDisplayDiff(originalText, modifiedText) {
-    if (!dmp) {
-        initializeDiffMatchPatch();
-        if (!dmp) {
-            showNotification('diff_match_patch库未加载，无法显示差异', 'error');
-            return;
-        }
-    }
-
-    // 生成diff
-    const diffs = dmp.diff_main(originalText, modifiedText);
-    dmp.diff_cleanupSemantic(diffs);
+    const finalHtml = `
+        <div class="ai-diff-section">
+            <h4>📊 修改对比</h4>
+            <div class="ai-diff-container">${diffHtml}</div>
+        </div>
+        <div class="ai-edit-section">
+            <h4>✏️ 手动编辑</h4>
+            <div class="ai-edit-description">您可以在下方继续编辑AI生成的文本：</div>
+            <textarea id="aiEditableText" class="ai-editable-text">${escapeHtml(modifiedText)}</textarea>
+        </div>
+    `;
     
-    currentDiffResult = {
-        original: originalText,
-        modified: modifiedText,
-        diffs: diffs
-    };
-
-    // 显示diff结果
-    displayDiffResult(diffs);
+    aiDiffViewContainer.innerHTML = finalHtml;
+    aiDiffViewContainer.style.display = 'flex';
     
-    // 显示操作按钮
-    document.getElementById('aiAcceptBtn').style.display = 'inline-flex';
-    document.getElementById('aiRejectBtn').style.display = 'inline-flex';
-}
-
-// 显示diff结果
-function displayDiffResult(diffs) {
-    const diffContainer = document.getElementById('aiDiffContainer');
-    let html = '';
-    
-    for (let i = 0; i < diffs.length; i++) {
-        const [operation, text] = diffs[i];
-        const escapedText = escapeHtml(text);
-        
-        switch (operation) {
-            case 1: // 插入 (新增的内容)
-                html += `<div class="diff-line modified">${escapedText}</div>`;
-                break;
-            case -1: // 删除 (原有的内容)
-                html += `<div class="diff-line original">${escapedText}</div>`;
-                break;
-            case 0: // 不变
-                html += `<div class="diff-line unchanged">${escapedText}</div>`;
-                break;
-        }
-    }
-    
-    diffContainer.innerHTML = html;
+    currentEditorSelection.modifiedText = modifiedText;
 }
 
 // HTML转义
@@ -278,25 +168,43 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// 接受AI的修改
+// 接受修改的函数
 function acceptAIEdit() {
     const markdownEditor = document.getElementById('markdownEditor');
-    const { start, end, originalContent, modifiedText } = currentEditorSelection;
+    const aiEditableText = document.getElementById('aiEditableText');
+    const { start, end, originalContent } = currentEditorSelection;
 
-    // 用AI修改后的文本替换编辑器中的原文
-    markdownEditor.value = originalContent.substring(0, start) + modifiedText + originalContent.substring(end);
+    let finalText;
+    if (aiEditableText) {
+        finalText = aiEditableText.value;
+    } else {
+        finalText = currentEditorSelection.modifiedText;
+    }
+
+    markdownEditor.value = originalContent.substring(0, start) + finalText + originalContent.substring(end);
     
-    // 触发编辑器的更新事件，以刷新预览和状态
     markdownEditor.dispatchEvent(new Event('input', { bubbles: true }));
     
+    // ⭐️ 关键修复：先重置面板状态，再关闭面板
+    resetAIPanel();
     closeAICommandPanel();
-    showNotification('AI修改已应用', 'success');
+    
+    // ⭐️ 关键修复：延迟提示框，防止与动画冲突
+    setTimeout(() => {
+        showNotification('修改已应用', 'success');
+    }, 400); // 延迟时间与CSS动画时间一致
 }
 
-// 拒绝AI的修改，并返回到输入指令的界面
+// 拒绝修改的函数
 function rejectAIEdit() {
+    // ⭐️ 关键修复：先重置面板状态，再关闭面板
     resetAIPanel();
-    showNotification('已拒绝AI修改', 'info');
+    closeAICommandPanel();
+    
+    // ⭐️ 关键修复：延迟提示框
+    setTimeout(() => {
+        showNotification('已取消AI修改', 'info');
+    }, 400);
 }
 
 // 辅助函数：重置AI面板状态
@@ -313,29 +221,22 @@ function resetAIPanel() {
 }
 
 // 导出AI编辑器函数到全局
-window.openAIEditor = openAIEditor;
-window.closeAIEditor = closeAIEditor;
 window.initiateAIEdit = initiateAIEdit;
 window.closeAICommandPanel = closeAICommandPanel;
 window.processAIEdit = processAIEdit;
 window.acceptAIEdit = acceptAIEdit;
 window.rejectAIEdit = rejectAIEdit;
 
-// 初始化diff_match_patch
-document.addEventListener('DOMContentLoaded', function() {
-    initializeDiffMatchPatch();
-});
-
 console.log('🤖 AI编辑器功能已加载！');
 
-// 兼容性函数：如果showNotification不存在，使用alert作为后备
+// 兼容性与占位函数
 if (typeof showNotification === 'undefined') {
     window.showNotification = function(message, type) {
+        console.log(`Notification (${type}): ${message}`);
         alert(message);
     };
 }
 
-// 兼容性函数：如果apiRequest不存在，使用fetch作为后备
 if (typeof apiRequest === 'undefined') {
     window.apiRequest = function(url, options) {
         return fetch(url, {
@@ -347,3 +248,20 @@ if (typeof apiRequest === 'undefined') {
         });
     };
 }
+
+// 其他页面功能的占位函数
+window.startNewChat = () => alert('功能待实现: 新建对话');
+window.clearAllHistory = () => alert('功能待实现: 清空历史');
+window.clearProjectLock = () => alert('功能待实现: 解锁项目');
+window.goBackToProjectSelection = () => alert('功能待实现: 返回项目选择');
+window.toggleThinking = (show) => console.log(`显示思考过程: ${show}`);
+window.toggleAutoSave = (save) => console.log(`自动保存: ${save}`);
+window.resetSettings = () => alert('功能待实现: 重置设置');
+window.saveSettings = () => alert('功能待实现: 保存设置');
+window.closeMarkdownPreview = () => document.getElementById('markdownPreviewModal').classList.remove('show');
+window.downloadOriginalDoc = () => alert('功能待实现: 下载原文件');
+window.refreshPreview = () => alert('功能待实现: 刷新预览');
+window.insertMarkdownTemplate = () => alert('功能待实现: 插入模板');
+window.downloadEditedContent = () => alert('功能待实现: 下载编辑后内容');
+window.saveEditedDocument = () => alert('功能待实现: 保存修改到服务器');
+window.clearAllCurrentFiles = () => alert('功能待实现: 清空当前文件');

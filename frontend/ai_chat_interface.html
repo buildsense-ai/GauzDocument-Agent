@@ -97,7 +97,7 @@
             <div class="tab-content" id="historyTab">
                 <div class="chat-history">
                     <div class="history-title">
-                        <span>💬 对话历史</span>
+                        <span>� 对话历史</span>
                         <div class="history-actions">
                             <button class="history-action-btn" onclick="clearAllHistory()">清空</button>
                         </div>
@@ -312,7 +312,8 @@
             <div id="aiCommandPanel" class="ai-command-panel">
                 <div class="ai-panel-header">
                     <h3>🤖 AI 编辑模式</h3>
-                    <button class="ai-panel-close" onclick="closeAICommandPanel()">×</button>
+                    <!-- ⭐️ 修复：移除onclick，增加ID ⭐️ -->
+                    <button id="aiPanelCloseBtn" class="ai-panel-close">×</button>
                 </div>
                 <div class="ai-panel-content">
                     <div class="ai-panel-group">
@@ -324,8 +325,9 @@
                         <textarea id="aiCommandInput" class="ai-command-input" placeholder="请描述您希望AI如何修改这段文本..."></textarea>
                     </div>
                 </div>
+                <!-- 容器结构更新 -->
                 <div id="aiDiffViewContainer" class="ai-diff-view-container">
-                    <!-- AI生成的差异对比将显示在这里 -->
+                    <!-- JS将在这里填充差异对比和手动编辑区 -->
                 </div>
                 <div class="ai-panel-footer">
                     <div id="aiPanelActions">
