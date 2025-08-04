@@ -1907,3 +1907,92 @@ body {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
+
+/* ⭐️ AI编辑提示气泡样式 ⭐️ */
+.ai-edit-tooltip {
+    position: fixed;
+    z-index: 99999;
+    background: rgba(255, 255, 255, 0.95);
+    color: #333;
+    border-radius: 16px;
+    padding: 10px 18px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.06);
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(10px) scale(0.9);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    user-select: none;
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-width: 80px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.ai-edit-tooltip.show {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+.ai-edit-tooltip:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.08);
+    background: rgba(255, 255, 255, 0.98);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.tooltip-content {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.tooltip-icon {
+    font-size: 14px;
+    animation: pulse 2s infinite;
+}
+
+.tooltip-text {
+    font-family: var(--font-family);
+}
+
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+/* 气泡箭头效果 */
+.ai-edit-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid rgba(255, 255, 255, 0.95);
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.06));
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .ai-edit-tooltip {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+    
+    .tooltip-content {
+        gap: 4px;
+    }
+    
+    .tooltip-icon {
+        font-size: 12px;
+    }
+}

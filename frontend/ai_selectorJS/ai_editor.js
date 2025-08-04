@@ -44,6 +44,62 @@ function initializeAIEditorEventListeners() {
     } else {
         console.warn('AI面板关闭按钮未找到');
     }
+    
+    // ⭐️ 新增：监听编辑器文本选择事件，显示AI编辑提示气泡
+    const markdownEditor = document.getElementById('markdownEditor');
+    if (markdownEditor) {
+        let selectionTimeout;
+        
+        const handleTextSelection = (event) => {
+            console.log('🔍 文本选择事件触发:', event.type);
+            // 清除之前的延时器
+            clearTimeout(selectionTimeout);
+            
+            // 延迟检查选择，避免频繁触发
+            selectionTimeout = setTimeout(() => {
+                const selectionStart = markdownEditor.selectionStart;
+                const selectionEnd = markdownEditor.selectionEnd;
+                const selectedText = markdownEditor.value.substring(selectionStart, selectionEnd);
+                
+                console.log('📝 选中文本:', selectedText, '长度:', selectedText.length);
+                
+                // 如果选中了文本且长度合适，显示AI编辑提示气泡
+                if (selectedText.trim() && selectedText.length > 5 && selectedText.length < 1000) {
+                    // 检查AI面板是否已经显示
+                    const aiCommandPanel = document.getElementById('aiCommandPanel');
+                    console.log('🎛️ AI面板状态:', aiCommandPanel ? aiCommandPanel.classList.contains('show') : 'not found');
+                    
+                    if (!aiCommandPanel.classList.contains('show')) {
+                        // 获取鼠标位置或使用编辑器位置
+                        let x = event.clientX || markdownEditor.offsetLeft + 100;
+                        let y = event.clientY || markdownEditor.offsetTop + 100;
+                        
+                        // 如果没有鼠标事件，计算选中文本的大概位置
+                        if (!event.clientX) {
+                            const rect = markdownEditor.getBoundingClientRect();
+                            x = rect.left + 100;
+                            y = rect.top + 100;
+                        }
+                        
+                        console.log('🎯 创建气泡位置:', x, y);
+                        createAIEditTooltip(x, y);
+                    }
+                } else {
+                    // 如果没有选中合适的文本，移除气泡
+                    console.log('❌ 文本不符合条件，移除气泡');
+                    removeAIEditTooltip();
+                }
+            }, 500); // 增加延迟到500ms，给用户更多时间完成操作
+        };
+        
+        // 监听鼠标和键盘选择事件
+        markdownEditor.addEventListener('mouseup', handleTextSelection);
+        markdownEditor.addEventListener('keyup', handleTextSelection);
+        markdownEditor.addEventListener('select', handleTextSelection);
+        
+        // 初始化复制/剪切操作检测
+        detectCopyPasteOperations();
+    }
 }
 
 
@@ -115,12 +171,74 @@ async function processAIEdit() {
 
 // 调用真实的AI编辑器API
 async function callAIEditorAPI(text, command) {
-    // 模拟API调用
-    console.log('📤 发送AI编辑请求:', { text, command });
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    const resultText = `这是AI根据“${command}”指令修改后的文本。\n` + text.split('\n').map(line => `> ${line}`).join('\n');
-    console.log('📥 AI编辑响应:', resultText);
-    return resultText;
+    try {
+        console.log('📤 发送AI编辑请求:', { text, command });
+        
+        // 获取当前项目名称
+        let projectName = "GauzDocument-Agent"; // 默认项目名称
+        
+        // 尝试从全局变量获取当前项目名称
+        if (typeof currentProject !== 'undefined' && currentProject && currentProject.name) {
+            projectName = currentProject.name;
+            console.log('📋 使用当前项目名称:', projectName);
+        } else {
+            // 尝试从localStorage获取
+            try {
+                const savedProject = localStorage.getItem('currentProject');
+                if (savedProject) {
+                    const project = JSON.parse(savedProject);
+                    if (project && project.name) {
+                        projectName = project.name;
+                        console.log('📋 从localStorage获取项目名称:', projectName);
+                    }
+                }
+            } catch (error) {
+                console.warn('⚠️ 无法从localStorage获取项目信息:', error);
+            }
+        }
+        
+        // 构建请求数据
+        const requestData = {
+            plain_text: [text], // 后端期望的是字符串数组
+            request: command,
+            project_name: projectName, // 动态获取的项目名称
+            search_type: "hybrid",
+            top_k: 5
+        };
+        
+        console.log('📤 AI编辑请求数据:', requestData);
+        
+        // 发送POST请求到后端API
+        const response = await fetch('http://localhost:8001/api/ai-editor/process', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestData)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log('📥 AI编辑响应:', result);
+        
+        if (result.success) {
+            return result.result;
+        } else {
+            throw new Error(result.error || '未知错误');
+        }
+        
+    } catch (error) {
+        console.error('❌ AI编辑API调用失败:', error);
+        // 显示错误通知
+        if (typeof showNotification === 'function') {
+            showNotification(`AI编辑失败: ${error.message}`, 'error');
+        }
+        // 返回原文本作为fallback
+        return text;
+    }
 }
 
 // 渲染Diff和手动编辑区的函数
@@ -247,6 +365,109 @@ if (typeof apiRequest === 'undefined') {
             ...options
         });
     };
+}
+
+// ⭐️ AI编辑提示气泡功能 ⭐️
+let aiEditTooltip = null;
+let tooltipTimeout = null;
+
+// 创建AI编辑提示气泡
+function createAIEditTooltip(x, y) {
+    console.log('🎈 开始创建气泡，位置:', x, y);
+    
+    // 移除已存在的气泡
+    removeAIEditTooltip();
+    
+    const tooltip = document.createElement('div');
+    tooltip.id = 'aiEditTooltip';
+    tooltip.className = 'ai-edit-tooltip';
+    tooltip.innerHTML = `
+        <div class="tooltip-content">
+            <span class="tooltip-icon">🤖</span>
+            <span class="tooltip-text">AI编辑</span>
+        </div>
+    `;
+    
+    // 设置位置
+    tooltip.style.left = x + 'px';
+    tooltip.style.top = (y - 50) + 'px';
+    
+    console.log('📍 气泡样式设置:', tooltip.style.left, tooltip.style.top);
+    
+    // 添加点击事件
+    tooltip.addEventListener('click', () => {
+        console.log('👆 气泡被点击');
+        removeAIEditTooltip();
+        initiateAIEdit();
+    });
+    
+    document.body.appendChild(tooltip);
+    aiEditTooltip = tooltip;
+    
+    console.log('✅ 气泡已添加到DOM');
+    
+    // 添加淡入动画
+    setTimeout(() => {
+        tooltip.classList.add('show');
+        console.log('🎭 气泡显示动画已触发');
+        
+        // 检查气泡是否真的可见
+        const computedStyle = window.getComputedStyle(tooltip);
+        console.log('🔍 气泡计算样式:', {
+            opacity: computedStyle.opacity,
+            display: computedStyle.display,
+            visibility: computedStyle.visibility,
+            zIndex: computedStyle.zIndex,
+            position: computedStyle.position,
+            left: computedStyle.left,
+            top: computedStyle.top
+        });
+        
+        // 检查气泡是否在视口内
+        const rect = tooltip.getBoundingClientRect();
+        console.log('📐 气泡位置信息:', {
+            rect: rect,
+            inViewport: rect.top >= 0 && rect.left >= 0 && 
+                       rect.bottom <= window.innerHeight && 
+                       rect.right <= window.innerWidth
+        });
+    }, 100);
+    
+    // 3秒后自动消失
+    tooltipTimeout = setTimeout(() => {
+        console.log('⏰ 气泡自动消失');
+        removeAIEditTooltip();
+    }, 3000);
+}
+
+// 移除AI编辑提示气泡
+function removeAIEditTooltip() {
+    if (aiEditTooltip) {
+        aiEditTooltip.classList.remove('show');
+        setTimeout(() => {
+            if (aiEditTooltip && aiEditTooltip.parentNode) {
+                aiEditTooltip.parentNode.removeChild(aiEditTooltip);
+            }
+            aiEditTooltip = null;
+        }, 200);
+    }
+    if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+        tooltipTimeout = null;
+    }
+}
+
+// 检测复制/剪切操作
+function detectCopyPasteOperations() {
+    const markdownEditor = document.getElementById('markdownEditor');
+    if (markdownEditor) {
+        markdownEditor.addEventListener('keydown', (e) => {
+            // 检测Ctrl+C, Ctrl+X, Ctrl+V等操作
+            if (e.ctrlKey && (e.key === 'c' || e.key === 'x' || e.key === 'v')) {
+                removeAIEditTooltip();
+            }
+        });
+    }
 }
 
 // 其他页面功能的占位函数

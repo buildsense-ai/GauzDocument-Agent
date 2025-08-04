@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工程AI助手 - 升级版紫色主题</title>
+
+    <!-- 📌 已更新为您的CSS文件路径 -->
+    <link rel="stylesheet" href="css/ai_chat_interface.css">
+    
+    <!-- 🆕 引入marked.js库用于Markdown解析 - 稳定版本 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@16.1.1/lib/marked.umd.min.js"
+        onerror="loadMarkedFromBackup()"></script>
+
+    <!-- 🔧 引入diff-match-patch库用于文本差异比较 -->
+    <script src="libs/diff_match_patch.js"></script>
+
+    <!-- 🔧 备用CDN和错误处理 (已保留) -->
+    <script>
+        // 备用CDN加载函数
+        function loadMarkedFromBackup() {
+            console.warn('⚠️ 主CDN加载失败，尝试备用CDN');
+            const backupSources = [
+                'https://cdnjs.cloudflare.com/ajax/libs/marked/16.1.1/lib/marked.umd.min.js',
+                'https://unpkg.com/marked@16.1.1/lib/marked.umd.min.js'
+            ];
+
+            let sourceIndex = 0;
+
+            function tryNextSource() {
+                if (sourceIndex >= backupSources.length) {
+                    console.error('❌ 所有marked.js CDN都加载失败，将使用备用渲染器');
+                    window.markedLoadFailed = true;
+                    return;
+                }
+
+                const script = document.createElement('script');
+                script.src = backupSources[sourceIndex];
+                script.onload = function () {
+                    console.log('✅ 备用CDN加载成功:', backupSources[sourceIndex]);
+                };
+                script.onerror = function () {
+                    console.warn('⚠️ 备用CDN失败:', backupSources[sourceIndex]);
+                    sourceIndex++;
+                    tryNextSource();
+                };
+                document.head.appendChild(script);
+            }
+
+            tryNextSource();
+        }
+
+        // 检查marked.js是否成功加载
+        window.addEventListener('DOMContentLoaded', function () {
+            setTimeout(function () {
+                if (typeof marked === 'undefined' && !window.markedLoadFailed) {
+                    console.warn('⚠️ marked.js加载超时，尝试备用方案');
+                    loadMarkedFromBackup();
+                }
+            }, 3000); // 3秒超时
+        });
+    </script>
+
+</head>
+
+<body>
+    <div class="container">
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">AI生成文档助手</div>
+                <button class="settings-btn" onclick="openSettings()">⚙️</button>
+            </div>
+
+            <button class="new-chat-btn" onclick="startNewChat()">
+                <span>💬</span>
+                <span>新建对话</span>
+            </button>
+
+            <div class="sidebar-tabs">
+                <button class="sidebar-tab active" onclick="switchTab('files')">
+                    <span>📁 文件</span>
+                </button>
+                <button class="sidebar-tab" onclick="switchTab('history')">
+                    <span>💬 对话</span>
+                </button>
+            </div>
+
+            <div class="tab-content active" id="filesTab">
+                <div class="file-tree" id="fileTree">
+                    <div style="color: var(--text-tertiary); font-size: 12px; text-align: center; padding: 20px;">
+                        通过对话框📎按钮上传文件后，文件将在此显示
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-content" id="historyTab">
+                <div class="chat-history">
+                    <div class="history-title">
+                        <span>� 对话历史</span>
+                        <div class="history-actions">
+                            <button class="history-action-btn" onclick="clearAllHistory()">清空</button>
+                        </div>
+                    </div>
+                    <div class="history-list" id="historyList">
+                        <div style="color: var(--text-tertiary); font-size: 12px; text-align: center; padding: 20px;">
+                            点击"新建对话"开始
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="sidebar-toggle" id="sidebarToggle">
+                <span>◀</span>
+            </div>
+
+            <div class="chat-header">
+                <div class="chat-title-section">
+                    <div class="chat-title">AI 对话助手</div>
+                    <div class="project-info" id="projectInfo" style="display: none;">
+                        <span class="project-icon">🏗️</span>
+                        <span class="project-name" id="projectName"></span>
+                        <span class="project-type" id="projectType"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-container">
+                <div class="welcome-prompts" id="welcomePrompts">
+                    <div class="welcome-title">欢迎使用AI生成文档助手</div>
+                    <div class="welcome-subtitle">点击左侧"新建对话"开始您的工作流</div>
+                </div>
+
+                <div class="chat-messages" id="chatMessages">
+                    <!-- 对话消息将在这里显示 -->
+                </div>
+            </div>
+
+            <div class="input-area">
+                <div class="input-container">
+                    <textarea class="input-field" id="inputField" placeholder="请输入您的问题..." rows="1"></textarea>
+                    <div class="input-actions">
+                        <button class="attach-btn" id="tempUploadBtn" title="临时上传（仅用于当前对话）">📎</button>
+                        <button class="send-button" id="sendButton" disabled>
+                            <span>▶</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="current-files" id="currentFiles">
+                    <div class="current-files-header">
+                        <div class="current-files-title">当前对话文件</div>
+                        <button class="clear-files-btn" onclick="clearAllCurrentFiles()" title="清空所有文件">🗑️</button>
+                    </div>
+                    <div id="currentFilesList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 设置面板 -->
+    <div class="settings-overlay" id="settingsOverlay">
+        <div class="settings-panel">
+            <div class="settings-header">
+                <h2 class="settings-title">⚙️ 设置</h2>
+                <button class="settings-close" onclick="closeSettings()">×</button>
+            </div>
+
+            <div class="settings-section">
+                <h3 class="settings-section-title">🎨 主题设置</h3>
+                <div class="settings-item">
+                    <div>
+                        <div class="settings-item-label">主题模式</div>
+                        <div class="settings-item-desc">选择浅色或深色主题</div>
+                    </div>
+                    <div class="theme-toggle">
+                        <button class="theme-option active" onclick="setTheme('light')">🌞 浅色</button>
+                        <button class="theme-option" onclick="setTheme('dark')">🌙 深色</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h3 class="settings-section-title">🏗️ 项目管理</h3>
+                <div class="settings-item">
+                    <div>
+                        <div class="settings-item-label">当前项目</div>
+                        <div class="settings-item-desc" id="currentProjectDisplay">未选择项目</div>
+                    </div>
+                    <button class="settings-btn secondary" onclick="clearProjectLock()">🔓 解锁</button>
+                </div>
+                <div class="settings-item">
+                    <div>
+                        <div class="settings-item-label">返回项目选择</div>
+                        <div class="settings-item-desc">返回项目选择页面</div>
+                    </div>
+                    <button class="settings-btn secondary" onclick="goBackToProjectSelection()">🔙 返回</button>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h3 class="settings-section-title">💬 对话设置</h3>
+                <div class="settings-item">
+                    <div>
+                        <div class="settings-item-label">显示思考过程</div>
+                        <div class="settings-item-desc">是否显示AI的思考过程</div>
+                    </div>
+                    <div class="theme-toggle">
+                        <button class="theme-option active" onclick="toggleThinking(true)">显示</button>
+                        <button class="theme-option" onclick="toggleThinking(false)">隐藏</button>
+                    </div>
+                </div>
+                <div class="settings-item">
+                    <div>
+                        <div class="settings-item-label">自动保存对话</div>
+                        <div class="settings-item-desc">自动保存对话历史到本地</div>
+                    </div>
+                    <div class="theme-toggle">
+                        <button class="theme-option active" onclick="toggleAutoSave(true)">开启</button>
+                        <button class="theme-option" onclick="toggleAutoSave(false)">关闭</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-actions">
+                <button class="settings-btn secondary" onclick="resetSettings()">重置</button>
+                <button class="settings-btn" onclick="saveSettings()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🆕 Markdown预览器模态窗口 -->
+    <div id="markdownPreviewModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content preview-modal">
+            <div class="modal-header">
+                <h2 class="modal-title">
+                    <span class="title-icon">📖</span>
+                    <span id="previewDocTitle">文档预览</span>
+                </h2>
+                <button class="modal-close" onclick="closeMarkdownPreview()">×</button>
+            </div>
+
+            <div class="preview-toolbar">
+                <div class="toolbar-left">
+                    <button class="preview-btn" onclick="downloadOriginalDoc()">
+                        <span>📄</span> 下载原文件
+                    </button>
+                    <button class="preview-btn" onclick="refreshPreview()">
+                        <span>🔄</span> 刷新预览
+                    </button>
+                    <button class="preview-btn edit-btn" onclick="openDocumentEditor()">
+                        <span>✏️</span> 编辑文档
+                    </button>
+                </div>
+                <div class="preview-status">
+                    <span id="previewStatus">准备中...</span>
+                </div>
+            </div>
+
+            <div class="preview-content">
+                <div id="previewLoading" class="preview-loading">
+                    <div class="loading-spinner"></div>
+                    <p>正在获取和渲染文档...</p>
+                </div>
+                <div id="previewError" class="preview-error" style="display: none;">
+                    <div class="error-icon">⚠️</div>
+                    <h3>预览失败</h3>
+                    <p id="previewErrorMsg">无法获取文档内容</p>
+                    <button class="retry-btn" onclick="refreshPreview()">重试</button>
+                </div>
+                <div id="previewResult" class="preview-result" style="display: none;">
+                    <!-- 渲染的Markdown内容将显示在这里 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🆕 文档编辑器模态窗口 -->
+    <div id="documentEditorModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content editor-modal">
+            <div class="modal-header">
+                <h2 class="modal-title">
+                    <span class="title-icon">✏️</span>
+                    <span id="editorDocTitle">编辑文档</span>
+                </h2>
+                <button class="modal-close" onclick="closeDocumentEditor()">×</button>
+            </div>
+
+            <div class="editor-toolbar">
+                <div class="editor-info">
+                    <span id="editorStatus">准备编辑...</span>
+                </div>
+                <div class="editor-actions">
+                    <button class="editor-btn" onclick="insertMarkdownTemplate()">
+                        <span>📝</span> 插入模板
+                    </button>
+                    <button class="editor-btn ai-btn" onclick="initiateAIEdit()">
+                        <span>🤖</span> AI编辑
+                    </button>
+                    <button class="editor-btn" onclick="downloadEditedContent()">
+                        <span>💾</span> 下载
+                    </button>
+                    <button class="editor-btn primary" onclick="saveEditedDocument()">
+                        <span>✅</span> 保存修改
+                    </button>
+                </div>
+            </div>
+
+            <!-- ⭐️⭐️⭐️ 全新的AI编辑面板 ⭐️⭐️⭐️ -->
+            <div id="aiCommandPanel" class="ai-command-panel">
+                <div class="ai-panel-header">
+                    <h3>🤖 AI 编辑模式</h3>
+                    <!-- ⭐️ 修复：移除onclick，增加ID ⭐️ -->
+                    <button id="aiPanelCloseBtn" class="ai-panel-close">×</button>
+                </div>
+                <div class="ai-panel-content">
+                    <div class="ai-panel-group">
+                        <label>已选中文本</label>
+                        <div id="aiSelectedTextPreview" class="ai-selected-text-preview">请在左侧编辑器选择文本...</div>
+                    </div>
+                    <div class="ai-panel-group">
+                        <label for="aiCommandInput">修改要求</label>
+                        <textarea id="aiCommandInput" class="ai-command-input" placeholder="请描述您希望AI如何修改这段文本..."></textarea>
+                    </div>
+                </div>
+                <!-- 容器结构更新 -->
+                <div id="aiDiffViewContainer" class="ai-diff-view-container">
+                    <!-- JS将在这里填充差异对比和手动编辑区 -->
+                </div>
+                <div class="ai-panel-footer">
+                    <div id="aiPanelActions">
+                        <button class="ai-panel-btn" id="aiProcessBtn" onclick="processAIEdit()">
+                            <span>✨</span> 生成修改
+                        </button>
+                    </div>
+                    <div id="aiDiffActions" style="display: none;">
+                        <button class="ai-panel-btn reject" onclick="rejectAIEdit()">
+                            <span>❌</span> 拒绝
+                        </button>
+                        <button class="ai-panel-btn accept" onclick="acceptAIEdit()">
+                            <span>✅</span> 接受
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <!-- ⭐️⭐️⭐️ AI编辑面板结束 ⭐️⭐️⭐️ -->
+
+            <div class="editor-content">
+                <div class="editor-pane">
+                    <div class="pane-header">📝 Markdown 编辑器</div>
+                    <textarea id="markdownEditor" class="markdown-editor" placeholder="在此输入或修改 Markdown 内容..."></textarea>
+                    <div class="editor-status">
+                        <span id="editorWordCount">字符数: 0</span>
+                        <span id="editorLineCount">行数: 1</span>
+                    </div>
+                </div>
+                <div class="editor-pane">
+                    <div class="pane-header">👁️ 实时预览</div>
+                    <div id="editorPreview" class="editor-preview">
+                        <p style="color: var(--text-secondary); text-align: center; margin-top: 50px;">开始输入以查看预览...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI编辑器模态窗口已被删除 -->
+
+    <script src="libs/diff_match_patch.js"></script>
+    <script src="ai_selectorJS/ai_editor.js"></script>
+    <script src="ai_chat_script.js"></script>
+</body>
+
+</html>
