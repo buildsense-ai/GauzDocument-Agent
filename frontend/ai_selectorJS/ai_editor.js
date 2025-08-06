@@ -113,6 +113,13 @@ function initializeAIEditorEventListeners() {
                 console.log('🎛️ AI面板状态:', aiCommandPanel ? aiCommandPanel.classList.contains('show') : 'not found');
                 
                 if (!aiCommandPanel.classList.contains('show')) {
+                    // 🔧 关键修复：检查是否已有输入框存在
+                    const existingInput = document.getElementById('aiEditInputContainer');
+                    if (existingInput) {
+                        console.log('⚠️ AI输入框正在使用中，跳过新气泡创建以保护用户操作');
+                        return;
+                    }
+                    
                     // 获取鼠标位置或使用编辑器位置
                     let x = event.clientX || activeEditor.offsetLeft + 100;
                     let y = event.clientY || activeEditor.offsetTop + 100;
@@ -465,9 +472,34 @@ let globalClickHandler = null; // 跟踪全局点击监听器
 // 创建AI编辑提示气泡
 function createAIEditTooltip(x, y) {
     console.log('🎈 开始创建气泡，位置:', x, y);
+    console.log('📞 调用栈:', new Error().stack);
     
-    // 移除已存在的气泡
-    removeAIEditTooltip();
+    // 检查当前状态
+    const existingTooltip = document.getElementById('aiEditTooltip');
+    const existingInput = document.getElementById('aiEditInputContainer');
+    console.log('🔍 当前状态检查:', {
+        existingTooltip: !!existingTooltip,
+        existingInput: !!existingInput,
+        aiEditTooltip: !!aiEditTooltip,
+        timestamp: new Date().toISOString()
+    });
+    
+    // 🔧 关键修复：如果已经有输入框存在，不创建新气泡，避免干扰用户操作
+    if (existingInput) {
+        console.log('⚠️ 检测到输入框正在使用中，跳过气泡创建以保护用户操作');
+        return;
+    }
+    
+    // 只移除气泡状态的元素，保护输入框状态的元素
+    if (existingTooltip && !existingInput) {
+        console.log('🧹 移除已存在的气泡（非输入框状态）');
+        if (existingTooltip.parentNode) {
+            existingTooltip.parentNode.removeChild(existingTooltip);
+        }
+        if (aiEditTooltip === existingTooltip) {
+            aiEditTooltip = null;
+        }
+    }
     
     // 获取当前选中的文本
     const selectedText = getSelectedText();
@@ -495,8 +527,14 @@ function createAIEditTooltip(x, y) {
     console.log('📍 气泡样式设置:', tooltip.style.left, tooltip.style.top);
     
     // 添加点击事件
-    tooltip.addEventListener('click', () => {
-        console.log('👆 气泡被点击');
+    tooltip.addEventListener('click', (e) => {
+        console.log('👆 气泡被点击', {
+            target: e.target.tagName,
+            currentTarget: e.currentTarget.id,
+            timestamp: new Date().toISOString(),
+            mousePosition: { x: e.clientX, y: e.clientY },
+            callStack: new Error().stack
+        });
         // 转换为输入框模式
         transformTooltipToInput(tooltip, x, y);
     });
@@ -505,6 +543,26 @@ function createAIEditTooltip(x, y) {
     aiEditTooltip = tooltip;
     
     console.log('✅ 气泡已添加到DOM');
+    
+    // 立即验证DOM添加状态
+    const verifyElement = document.getElementById('aiEditTooltip');
+    console.log('🔍 DOM添加验证:', {
+        elementExists: !!verifyElement,
+        parentNode: verifyElement ? verifyElement.parentNode.tagName : 'null',
+        isConnected: verifyElement ? verifyElement.isConnected : false,
+        bodyChildren: document.body.children.length,
+        timestamp: new Date().toISOString()
+    });
+    
+    // 检查是否有其他代码可能立即移除元素
+    setTimeout(() => {
+        const stillExists = document.getElementById('aiEditTooltip');
+        console.log('⏱️ 100ms后元素状态:', {
+            stillExists: !!stillExists,
+            aiEditTooltipRef: !!aiEditTooltip,
+            timestamp: new Date().toISOString()
+        });
+    }, 100);
     
     // 添加淡入动画
     setTimeout(() => {
@@ -539,16 +597,29 @@ function createAIEditTooltip(x, y) {
         const inputContainer = document.getElementById('aiEditInputContainer');
         if (!inputContainer) {
             console.log('⏰ 气泡自动消失（未转换为输入框）');
-            removeAIEditTooltip();
+            // 只移除气泡，不调用removeAIEditTooltip避免误删输入框
+            const tooltipElement = document.getElementById('aiEditTooltip');
+            if (tooltipElement && tooltipElement.parentNode) {
+                tooltipElement.parentNode.removeChild(tooltipElement);
+                if (aiEditTooltip === tooltipElement) {
+                    aiEditTooltip = null;
+                }
+            }
+            if (tooltipTimeout) {
+                clearTimeout(tooltipTimeout);
+                tooltipTimeout = null;
+            }
         } else {
             console.log('⏰ 气泡已转换为输入框，取消自动消失');
         }
     }, 5000);
 }
 
-// 将气泡转换为输入框 - 重新设计的简化版本
+// 将气泡转换为输入框 - 全面保护版本
 function transformTooltipToInput(tooltip, x, y) {
-    console.log('🔄 转换气泡为输入框 - 新版本');
+    console.log('🔄 转换气泡为输入框 - 全面保护版本');
+    console.log('📞 转换调用栈:', new Error().stack);
+    console.log('🎯 转换参数:', { tooltip: !!tooltip, x, y, timestamp: new Date().toISOString() });
     
     // 清除自动消失的定时器
     if (tooltipTimeout) {
@@ -561,23 +632,35 @@ function transformTooltipToInput(tooltip, x, y) {
         tooltip.parentNode.removeChild(tooltip);
     }
     
-    // 创建输入框容器 - 使用最简单的方式
+    // 创建输入框容器 - 使用内联样式强制显示
     const inputContainer = document.createElement('div');
     inputContainer.id = 'aiEditInputContainer';
-    inputContainer.className = 'ai-edit-input-container show'; // 直接添加show类
+    inputContainer.className = 'ai-edit-input-container ai-edit-protected'; // 添加保护标识
     inputContainer.style.cssText = `
-        position: fixed;
-        left: ${x}px;
-        top: ${y - 60}px;
-        z-index: 10000;
-        background: white;
-        border: 2px solid #007acc;
-        border-radius: 8px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        min-width: 300px;
-        max-width: 400px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        position: fixed !important;
+        left: ${x}px !important;
+        top: ${y - 60}px !important;
+        z-index: 99999 !important;
+        background: white !important;
+        border: 2px solid #007acc !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15) !important;
+        min-width: 300px !important;
+        max-width: 400px !important;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+        opacity: 1 !important;
+        transform: translateY(0) scale(1) !important;
+        transition: none !important;
+        display: block !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
     `;
+    
+    // 添加保护属性
+    inputContainer.setAttribute('data-ai-protected', 'true');
+    inputContainer.setAttribute('data-creation-time', Date.now());
+    
+    console.log('🎯 输入框容器已创建，强制显示样式已应用');
     
     // 获取当前选中的文本
     const selectedText = getSelectedText();
@@ -605,8 +688,78 @@ function transformTooltipToInput(tooltip, x, y) {
     `;
     
     // 添加到页面
+    console.log('📍 准备将输入框添加到DOM');
+    console.log('🔍 添加前DOM状态:', {
+        bodyChildren: document.body.children.length,
+        existingContainer: !!document.getElementById('aiEditInputContainer'),
+        timestamp: new Date().toISOString()
+    });
+    
     document.body.appendChild(inputContainer);
     aiEditTooltip = inputContainer;
+    
+    console.log('📍 输入框已添加到DOM，开始验证...');
+    
+    // 验证元素是否成功添加到DOM
+    const addedElement = document.getElementById('aiEditInputContainer');
+    if (addedElement) {
+        console.log('✅ 输入框已成功添加到DOM，元素ID:', addedElement.id);
+        console.log('📊 元素当前样式:', {
+            opacity: addedElement.style.opacity,
+            display: addedElement.style.display,
+            visibility: addedElement.style.visibility,
+            position: addedElement.style.position,
+            zIndex: addedElement.style.zIndex
+        });
+        
+        // 检查元素是否真的可见
+        const rect = addedElement.getBoundingClientRect();
+        console.log('📐 元素位置和尺寸:', {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+            inViewport: rect.width > 0 && rect.height > 0
+        });
+        
+        // 检查计算样式
+        const computedStyle = window.getComputedStyle(addedElement);
+        console.log('🎨 计算样式:', {
+            display: computedStyle.display,
+            visibility: computedStyle.visibility,
+            opacity: computedStyle.opacity,
+            zIndex: computedStyle.zIndex,
+            position: computedStyle.position
+        });
+        
+        // 持续监控元素状态
+        let monitorCount = 0;
+        const monitorInterval = setInterval(() => {
+            monitorCount++;
+            const stillExists = document.getElementById('aiEditInputContainer');
+            console.log(`⏱️ 监控 ${monitorCount}00ms:`, {
+                exists: !!stillExists,
+                isConnected: stillExists ? stillExists.isConnected : false,
+                parentNode: stillExists ? stillExists.parentNode.tagName : 'null',
+                timestamp: new Date().toISOString()
+            });
+            
+            if (monitorCount >= 10 || !stillExists) {
+                clearInterval(monitorInterval);
+                if (!stillExists) {
+                    console.error('🚨 输入框在监控期间消失了！');
+                }
+            }
+        }, 100);
+        
+    } else {
+        console.error('❌ 输入框添加到DOM失败！');
+        console.error('🔍 失败后DOM状态:', {
+            bodyChildren: document.body.children.length,
+            aiEditTooltipRef: !!aiEditTooltip,
+            timestamp: new Date().toISOString()
+        });
+    }
     
     // 绑定关闭事件 - 只通过按钮关闭
     const closeBtn = inputContainer.querySelector('#closeAIInput');
@@ -614,25 +767,72 @@ function transformTooltipToInput(tooltip, x, y) {
     const confirmBtn = inputContainer.querySelector('#confirmAIInput');
     const textarea = inputContainer.querySelector('#quickAICommand');
     
-    closeBtn.onclick = () => {
-        console.log('🗑️ 用户点击关闭按钮');
-        removeAIEditTooltip();
+    closeBtn.onclick = (e) => {
+        console.log('🗑️ 用户点击关闭按钮', {
+            target: e.target.tagName,
+            timestamp: new Date().toISOString(),
+            callStack: new Error().stack
+        });
+        removeAIEditTooltip(true); // 强制移除输入框
     };
     
-    cancelBtn.onclick = () => {
-        console.log('🗑️ 用户点击取消按钮');
-        removeAIEditTooltip();
+    cancelBtn.onclick = (e) => {
+        console.log('🗑️ 用户点击取消按钮', {
+            target: e.target.tagName,
+            timestamp: new Date().toISOString(),
+            callStack: new Error().stack
+        });
+        removeAIEditTooltip(true); // 强制移除输入框
     };
     
-    confirmBtn.onclick = () => {
-        console.log('✨ 用户点击生成按钮');
+    confirmBtn.onclick = (e) => {
+        console.log('✨ 用户点击生成按钮', {
+            target: e.target.tagName,
+            timestamp: new Date().toISOString(),
+            callStack: new Error().stack
+        });
         processQuickAIEdit();
     };
     
-    // 阻止容器内的点击事件冒泡
-    inputContainer.onclick = (e) => {
-        e.stopPropagation();
+    // 全面的事件隔离和保护
+    const protectFromEvents = (element) => {
+        // 阻止所有可能导致关闭的事件冒泡，但允许按钮内部事件
+        ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(eventType => {
+            element.addEventListener(eventType, (e) => {
+                // 检查是否是按钮或按钮内部元素的点击
+                const isButton = e.target.tagName === 'BUTTON' || e.target.closest('button');
+                const isButtonArea = e.target.id === 'closeAIInput' || e.target.id === 'cancelAIInput' || e.target.id === 'confirmAIInput';
+                
+                if (isButton || isButtonArea) {
+                    console.log(`✅ 允许按钮事件: ${eventType}`, e.target.id || e.target.tagName);
+                    // 允许按钮事件正常执行，不阻止冒泡
+                    return;
+                }
+                
+                // 对于非按钮元素，阻止事件冒泡
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                console.log(`🛡️ 阻止事件冒泡: ${eventType}`);
+            }, true); // 使用捕获阶段
+        });
+        
+        // 防止焦点丢失导致的问题
+        element.addEventListener('focusout', (e) => {
+            // 检查焦点是否移动到容器内的其他元素
+            if (element.contains(e.relatedTarget)) {
+                console.log('🎯 焦点在容器内移动，保持显示');
+                return;
+            }
+            console.log('📝 焦点移出容器，但不自动关闭');
+        });
+        
+        // 防止鼠标离开事件导致关闭
+        element.addEventListener('mouseleave', (e) => {
+            console.log('🖱️ 鼠标离开容器，但保持显示');
+        });
     };
+    
+    protectFromEvents(inputContainer);
     
     // 聚焦到输入框
     setTimeout(() => {
@@ -640,22 +840,106 @@ function transformTooltipToInput(tooltip, x, y) {
         console.log('✅ 输入框已创建并聚焦，永久显示直到用户主动关闭');
     }, 100);
     
-    // 强制保持显示的机制 - 定期检查并恢复
+    // 增强的DOM变化监听器 - 追踪和防护元素移除
+    const domObserver = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.type === 'childList') {
+                mutation.removedNodes.forEach((node) => {
+                    if (node.id === 'aiEditInputContainer' || (node.nodeType === 1 && node.querySelector && node.querySelector('#aiEditInputContainer'))) {
+                        console.error('🚨 检测到AI输入框被意外移除！', {
+                            removedNode: node.tagName || node.nodeType,
+                            removedBy: mutation.target.tagName || 'unknown',
+                            timestamp: new Date().toISOString(),
+                            stackTrace: new Error().stack
+                        });
+                        
+                        // 如果是受保护的元素被移除，立即恢复
+                        if (node.getAttribute && node.getAttribute('data-ai-protected') === 'true') {
+                            console.log('🔄 检测到受保护元素被移除，立即恢复');
+                            setTimeout(() => {
+                                if (!document.getElementById('aiEditInputContainer') && aiEditTooltip) {
+                                    document.body.appendChild(aiEditTooltip);
+                                    console.log('✅ 受保护元素已恢复');
+                                }
+                            }, 10);
+                        }
+                    }
+                });
+                
+                // 检查是否有新的全局事件监听器被添加
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === 1 && node.tagName === 'SCRIPT') {
+                        console.log('⚠️ 检测到新脚本添加，可能影响AI输入框');
+                    }
+                });
+            }
+        });
+    });
+    
+    domObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class']
+    });
+    
+    // 增强的保活机制 - 多重检查和恢复
     const keepAliveInterval = setInterval(() => {
         const container = document.getElementById('aiEditInputContainer');
+        
         if (!container && aiEditTooltip) {
-            console.log('⚠️ 检测到输入框被意外移除，正在恢复...');
-            // 如果容器被意外移除，重新添加
-            if (aiEditTooltip.parentNode !== document.body) {
+            console.warn('⚠️ 检测到输入框被意外移除，正在恢复...');
+            
+            // 检查aiEditTooltip是否还在DOM中
+            if (!document.body.contains(aiEditTooltip)) {
+                console.log('🔄 重新添加输入框到DOM');
                 document.body.appendChild(aiEditTooltip);
             }
+        } else if (container) {
+            // 检查容器的样式是否被意外修改
+            const computedStyle = window.getComputedStyle(container);
+            if (computedStyle.display === 'none' || computedStyle.visibility === 'hidden' || computedStyle.opacity === '0') {
+                console.warn('⚠️ 检测到输入框样式被意外修改，正在恢复...');
+                container.style.cssText = inputContainer.style.cssText; // 恢复原始样式
+            }
+            
+            // 检查z-index是否被覆盖
+            if (parseInt(computedStyle.zIndex) < 99999) {
+                console.warn('⚠️ 检测到z-index被降低，正在恢复...');
+                container.style.zIndex = '99999';
+            }
         }
-    }, 1000);
+    }, 300); // 更频繁的检查
     
-    // 将定时器ID保存到容器上，以便清理
+    // 将定时器和观察器保存到容器上，以便清理
     inputContainer.keepAliveInterval = keepAliveInterval;
+    inputContainer.domObserver = domObserver;
     
-    console.log('🛡️ 输入框保护机制已启动');
+    // 全局事件保护 - 防止外部点击事件影响
+    const globalProtectionHandler = (e) => {
+        const container = document.getElementById('aiEditInputContainer');
+        if (container && !container.contains(e.target)) {
+            // 检查是否点击了编辑器区域
+            const editors = ['markdownEditor', 'modalMarkdownEditor'];
+            const clickedEditor = editors.some(id => {
+                const editor = document.getElementById(id);
+                return editor && editor.contains(e.target);
+            });
+            
+            if (!clickedEditor) {
+                console.log('🛡️ 检测到外部点击，但保护AI输入框不被关闭');
+                // 不执行任何关闭操作，让用户明确点击关闭按钮
+            }
+        }
+    };
+    
+    // 在捕获阶段添加保护
+    document.addEventListener('click', globalProtectionHandler, true);
+    
+    // 保存处理器引用以便清理
+    inputContainer.globalProtectionHandler = globalProtectionHandler;
+    
+    console.log('🛡️ 输入框全面保护机制已启动（DOM监听器 + 事件隔离 + 样式保护 + 全局事件保护）');
 }
 
 // 处理快速AI编辑
@@ -1005,17 +1289,38 @@ window.transformTooltipToInput = transformTooltipToInput;
 window.processQuickAIEdit = processQuickAIEdit;
 
 // 移除AI编辑提示气泡 - 增强版本，确保完全清理
-function removeAIEditTooltip() {
-    console.log('🗑️ 开始移除AI编辑提示气泡（用户主动操作）');
+function removeAIEditTooltip(forceRemoveInput = false) {
+    console.log('🗑️ 开始移除AI编辑提示气泡', {
+        userAction: true,
+        forceRemoveInput: forceRemoveInput,
+        timestamp: new Date().toISOString()
+    });
     
-    // 清理所有可能存在的气泡和输入框元素
-    const elementsToRemove = [
-        aiEditTooltip,
-        document.getElementById('aiEditTooltip'),
-        document.getElementById('aiEditInputContainer')
-    ].filter(Boolean);
+    // 🔧 关键修复：区分气泡和输入框状态
+    const tooltip = document.getElementById('aiEditTooltip');
+    const inputContainer = document.getElementById('aiEditInputContainer');
     
-    elementsToRemove.forEach(element => {
+    const elementsToRemove = [];
+    
+    // 总是移除气泡
+    if (tooltip) {
+        elementsToRemove.push(tooltip);
+    }
+    if (aiEditTooltip && aiEditTooltip.id === 'aiEditTooltip') {
+        elementsToRemove.push(aiEditTooltip);
+    }
+    
+    // 只在强制模式或用户明确操作时移除输入框
+    if (inputContainer && forceRemoveInput) {
+        elementsToRemove.push(inputContainer);
+    } else if (inputContainer && !forceRemoveInput) {
+        console.log('🛡️ 保护输入框不被意外移除（非强制模式）');
+    }
+    
+    // 去重
+    const uniqueElements = [...new Set(elementsToRemove)].filter(Boolean);
+    
+    uniqueElements.forEach(element => {
         if (element) {
             console.log('📦 找到元素，类型:', element.className, 'ID:', element.id);
             
@@ -1026,10 +1331,43 @@ function removeAIEditTooltip() {
                 element.keepAliveInterval = null;
             }
             
+            // 清理DOM观察器
+        if (element.domObserver) {
+            console.log('🧹 清理DOM观察器');
+            element.domObserver.disconnect();
+            element.domObserver = null;
+        }
+        
+        // 清理全局保护处理器
+        if (element.globalProtectionHandler) {
+            console.log('🧹 清理全局保护处理器');
+            document.removeEventListener('click', element.globalProtectionHandler, true);
+            element.globalProtectionHandler = null;
+        }
+            
+            // 记录移除前的状态
+            console.log('📊 移除前元素状态:', {
+                parentNode: element.parentNode ? element.parentNode.tagName : 'null',
+                isConnected: element.isConnected,
+                style: {
+                    display: element.style.display,
+                    opacity: element.style.opacity,
+                    visibility: element.style.visibility
+                }
+            });
+            
             // 立即移除元素，不使用动画
             if (element.parentNode) {
                 console.log('🔥 从DOM中移除元素，ID:', element.id);
                 element.parentNode.removeChild(element);
+                
+                // 验证移除是否成功
+                const stillExists = document.getElementById(element.id);
+                if (stillExists) {
+                    console.error('❌ 元素移除失败，仍然存在于DOM中');
+                } else {
+                    console.log('✅ 元素已成功从DOM中移除');
+                }
             }
             
             console.log('✅ 元素已清理');
@@ -1061,14 +1399,25 @@ function detectCopyPasteOperations() {
     const addEditorListeners = (editor) => {
         if (!editor) return;
         
+        console.log('🎯 为编辑器添加事件监听器:', editor.id || 'unnamed');
+        
         editor.addEventListener('keydown', (e) => {
             // 只在粘贴操作时移除气泡，因为粘贴会改变文本内容
             if (e.ctrlKey && e.key === 'v') {
                 // 只有在气泡状态时才移除，输入框状态不移除
                 const tooltip = document.getElementById('aiEditTooltip');
-                if (tooltip && !document.getElementById('aiEditInputContainer')) {
-                    console.log('📋 检测到粘贴操作，移除气泡');
-                    removeAIEditTooltip();
+                const inputContainer = document.getElementById('aiEditInputContainer');
+                
+                console.log('📋 检测到粘贴操作', {
+                    hasTooltip: !!tooltip,
+                    hasInputContainer: !!inputContainer
+                });
+                
+                if (tooltip && !inputContainer) {
+                    console.log('📋 移除气泡（粘贴操作）');
+                    removeAIEditTooltip(false); // 只移除气泡，不强制移除输入框
+                } else if (inputContainer) {
+                    console.log('📋 输入框存在，不执行移除操作');
                 }
             }
             // 复制和剪切操作不移除气泡，让用户有机会使用AI编辑功能
@@ -1076,8 +1425,13 @@ function detectCopyPasteOperations() {
         
         // 完全移除blur事件的自动关闭逻辑
         // 输入框现在只能通过用户主动点击关闭按钮来关闭
-        editor.addEventListener('blur', () => {
-            console.log('📝 编辑器失去焦点，但不执行任何自动关闭操作');
+        editor.addEventListener('blur', (e) => {
+            const inputContainer = document.getElementById('aiEditInputContainer');
+            console.log('📝 编辑器失去焦点', {
+                editorId: editor.id || 'unnamed',
+                hasInputContainer: !!inputContainer,
+                relatedTarget: e.relatedTarget ? e.relatedTarget.tagName : 'null'
+            });
             // 不执行任何移除操作，确保输入框稳定显示
         });
     };
