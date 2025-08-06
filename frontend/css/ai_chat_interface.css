@@ -84,6 +84,11 @@ body {
     display: flex;
     height: 100vh;
     position: relative;
+    background: var(--bg-primary);
+}
+
+.container.preview-mode {
+    /* 预览模式下的分栏布局 */
 }
 
 .sidebar {
@@ -358,6 +363,13 @@ body {
     flex-direction: column;
     background: var(--bg-primary);
     position: relative;
+    transition: all 0.3s ease;
+}
+
+/* 预览模式下，主内容区域占40%宽度 */
+.container.preview-mode .main-content {
+    flex: 0 0 40%;
+    width: 40%;
 }
 
 .sidebar-toggle {
@@ -1182,6 +1194,96 @@ body {
     border-top: 1px solid var(--border-color);
 }
 
+/* 🆕 右侧Markdown预览侧边栏样式 */
+.preview-sidebar {
+    display: none;
+    flex-direction: column;
+    background: var(--bg-primary);
+    border-left: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+    transition: all 0.3s ease;
+}
+
+/* 预览模式下，预览侧边栏占60%宽度并显示 */
+.container.preview-mode .preview-sidebar {
+    display: flex;
+    flex: 0 0 60%;
+    width: 60%;
+    height: 100vh;
+}
+
+/* 响应式设计 */
+@media (max-width: 1024px) {
+    .container.preview-mode .main-content {
+        flex: 0 0 35%;
+        width: 35%;
+    }
+    
+    .container.preview-mode .preview-sidebar {
+        flex: 0 0 65%;
+        width: 65%;
+    }
+}
+
+@media (max-width: 768px) {
+    .container.preview-mode .main-content {
+        display: none;
+    }
+    
+    .container.preview-mode .preview-sidebar {
+        flex: 1;
+        width: 100%;
+    }
+    
+    .container.preview-mode .sidebar {
+        display: none;
+    }
+}
+
+.preview-sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    flex-shrink: 0;
+}
+
+.preview-sidebar-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.title-icon {
+    font-size: 18px;
+}
+
+.preview-sidebar-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.preview-sidebar-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
 /* 🆕 Markdown预览器样式 */
 .modal-overlay {
     position: fixed;
@@ -1231,10 +1333,6 @@ body {
     gap: 8px;
 }
 
-.title-icon {
-    font-size: 20px;
-}
-
 .modal-close {
     background: none;
     border: none;
@@ -1256,18 +1354,20 @@ body {
     color: var(--text-primary);
 }
 
-.preview-toolbar {
+.preview-sidebar .preview-toolbar {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 24px;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--border-color);
     background: var(--bg-primary);
+    flex-shrink: 0;
 }
 
-.toolbar-left {
+.preview-sidebar .toolbar-left {
     display: flex;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: 6px;
 }
 
 .edit-btn {
@@ -1281,18 +1381,20 @@ body {
     border-color: var(--success-hover) !important;
 }
 
-.preview-btn {
+.preview-sidebar .preview-btn {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
+    gap: 4px;
+    padding: 6px 10px;
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: 4px;
     background: var(--bg-primary);
     color: var(--text-primary);
     cursor: pointer;
-    font-size: 14px;
+    font-size: 12px;
     transition: all 0.2s ease;
+    flex: 1;
+    min-width: 0;
 }
 
 .preview-btn:hover {
@@ -1300,15 +1402,19 @@ body {
     border-color: var(--primary-color);
 }
 
-.preview-status {
+.preview-sidebar .preview-status {
     color: var(--text-secondary);
-    font-size: 14px;
+    font-size: 12px;
+    text-align: center;
+    padding: 4px 0;
 }
 
-.preview-content {
+.preview-sidebar .preview-content {
     flex: 1;
     overflow: hidden;
     position: relative;
+    display: flex;
+    flex-direction: column;
 }
 
 .preview-loading {
@@ -1484,11 +1590,157 @@ body {
     flex-shrink: 0;
 }
 
-.preview-result {
-    height: 100%;
+.preview-sidebar .preview-result {
+    flex: 1;
     overflow-y: auto;
-    padding: 24px;
+    padding: 16px;
     background: var(--bg-primary);
+    font-size: 14px;
+}
+
+/* 侧边栏编辑模式样式 */
+.preview-sidebar .editor-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.preview-sidebar .editor-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+.preview-sidebar .editor-pane:last-child {
+    border-bottom: none;
+}
+
+/* 全宽编辑器面板样式 */
+.preview-sidebar .editor-pane-full {
+    border-right: none;
+    border-bottom: none;
+}
+
+.preview-sidebar .pane-header {
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.preview-sidebar .markdown-editor {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    outline: none;
+    resize: none;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow-y: auto;
+    min-height: 200px;
+}
+
+.preview-sidebar .editor-preview {
+    flex: 1;
+    padding: 12px;
+    overflow-y: auto;
+    background: var(--bg-primary);
+    font-size: 13px;
+    min-height: 200px;
+}
+
+.preview-sidebar .editor-status {
+    padding: 6px 12px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: flex;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+
+.preview-sidebar .editor-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    flex-shrink: 0;
+}
+
+.preview-sidebar .editor-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.preview-sidebar .editor-btn {
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.preview-sidebar .editor-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--primary-color);
+}
+
+.preview-sidebar .editor-btn.primary {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.preview-sidebar .editor-btn.primary:hover {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+}
+
+.preview-sidebar .editor-btn.ai-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-color: #667eea;
+}
+
+.preview-sidebar .editor-btn.ai-btn:hover {
+    background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+}
+
+.preview-sidebar .editor-info {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+/* AI编辑面板在侧边栏中的样式 */
+.preview-sidebar .ai-command-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--bg-primary);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    border-radius: 0;
+    box-shadow: none;
 }
 
 /* Markdown渲染样式 */
@@ -1635,6 +1887,14 @@ body {
 }
 
 /* 响应式设计 */
+/* 平板设备优化 */
+@media (max-width: 1024px) {
+    .preview-sidebar {
+        width: 50vw;
+        right: -50vw;
+    }
+}
+
 @media (max-width: 768px) {
     .sidebar {
         width: 300px;
@@ -1652,11 +1912,31 @@ body {
     .image-container {
         max-width: 280px;
     }
+
+    /* 移动设备上的预览侧边栏 */
+    .preview-sidebar {
+        width: 100vw;
+        right: -100vw;
+    }
+
+    .main-content.preview-open {
+        margin-right: 0;
+    }
 }
 
 @media (max-width: 480px) {
     .image-container {
         max-width: 250px;
+    }
+
+    .preview-sidebar .preview-btn {
+        font-size: 11px;
+        padding: 4px 8px;
+    }
+
+    .preview-sidebar .preview-result {
+        padding: 12px;
+        font-size: 13px;
     }
 }
 
@@ -1981,6 +2261,152 @@ body {
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.06));
 }
 
+/* AI编辑输入框容器样式 */
+.ai-edit-input-container {
+    position: fixed;
+    background: var(--bg-primary);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    z-index: 10001;
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid var(--border-color);
+    min-width: 320px;
+    max-width: 400px;
+    backdrop-filter: blur(10px);
+}
+
+.ai-edit-input-container.show {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+.ai-edit-input-container .input-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    border-radius: 12px 12px 0 0;
+}
+
+.ai-edit-input-container .input-icon {
+    font-size: 16px;
+    margin-right: 8px;
+    color: var(--primary-color);
+}
+
+.ai-edit-input-container .input-title {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ai-edit-input-container .input-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.ai-edit-input-container .input-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.ai-edit-input-container .input-body {
+    padding: 16px;
+}
+
+.ai-edit-input-container .quick-ai-input {
+    width: 100%;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    resize: vertical;
+    min-height: 80px;
+    font-family: inherit;
+    transition: border-color 0.2s ease;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    outline: none;
+}
+
+.ai-edit-input-container .quick-ai-input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+.ai-edit-input-container .input-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    justify-content: flex-end;
+}
+
+.ai-edit-input-container .input-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ai-edit-input-container .input-btn.cancel {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
+.ai-edit-input-container .input-btn.cancel:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.ai-edit-input-container .input-btn.confirm {
+    background: var(--gradient-primary);
+    color: var(--text-inverse);
+}
+
+.ai-edit-input-container .input-btn.confirm:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.ai-edit-input-container .input-btn.confirm:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.ai-loading-spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top: 2px solid white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
 /* 响应式调整 */
 @media (max-width: 768px) {
     .ai-edit-tooltip {
@@ -1994,5 +2420,26 @@ body {
     
     .tooltip-icon {
         font-size: 12px;
+    }
+    
+    .ai-edit-input-container {
+        min-width: 280px;
+        max-width: 90vw;
+        left: 5vw !important;
+        right: 5vw;
+        width: auto;
+    }
+    
+    .ai-edit-input-container .input-header {
+        padding: 10px 12px;
+    }
+    
+    .ai-edit-input-container .input-body {
+        padding: 12px;
+    }
+    
+    .ai-edit-input-container .quick-ai-input {
+        font-size: 13px;
+        padding: 10px;
     }
 }

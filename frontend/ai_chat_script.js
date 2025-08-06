@@ -3134,36 +3134,30 @@ async function previewMarkdownDocument(taskId) {
 }
 
 function openMarkdownPreview(docTitle) {
-    const modal = document.getElementById('markdownPreviewModal');
+    const container = document.querySelector('.container');
     const titleElement = document.getElementById('previewDocTitle');
 
     if (titleElement) {
         titleElement.textContent = docTitle || '文档预览';
     }
 
-    // 显示模态窗口
-    modal.classList.add('show');
-    modal.style.display = 'flex';
+    // 启用预览模式 - 使用新的分栏布局
+    container.classList.add('preview-mode');
 
     // 重置状态
     showPreviewLoading();
 
-    // 禁用页面滚动
-    document.body.style.overflow = 'hidden';
-
-    console.log('📖 预览窗口已打开');
+    console.log('📖 预览模式已启用 - 左右分栏布局');
 }
 
 function closeMarkdownPreview() {
-    const modal = document.getElementById('markdownPreviewModal');
-    modal.classList.remove('show');
-    modal.style.display = 'none';
-
-    // 恢复页面滚动
-    document.body.style.overflow = '';
+    const container = document.querySelector('.container');
+    
+    // 退出预览模式 - 恢复正常布局
+    container.classList.remove('preview-mode');
 
     currentPreviewTaskId = null;
-    console.log('📖 预览窗口已关闭');
+    console.log('📖 预览模式已关闭 - 恢复正常布局');
 }
 
 function showPreviewLoading() {
@@ -3693,11 +3687,11 @@ window.refreshPreview = refreshPreview;
 
 // 🔧 防止重复添加事件监听器
 if (!window.previewEventListenersAdded) {
-    // ESC键关闭预览窗口
+    // ESC键关闭预览侧边栏
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-            const modal = document.getElementById('markdownPreviewModal');
-            if (modal && modal.classList.contains('show')) {
+            const container = document.querySelector('.container');
+            if (container && container.classList.contains('preview-mode')) {
                 closeMarkdownPreview();
             }
         }
@@ -3964,9 +3958,9 @@ let currentEditingContent = '';
 let currentEditingUrl = '';
 let currentEditingName = '';
 
-// 打开文档编辑器
-function openDocumentEditor() {
-    console.log('📝 打开文档编辑器');
+// 切换到编辑模式（在侧边栏中）
+function switchToEditMode() {
+    console.log('📝 切换到编辑模式');
     
     // 检查是否有当前预览的文档
     if (!currentPreviewTaskId || !window.taskDocuments || !window.taskDocuments[currentPreviewTaskId]) {
@@ -3978,25 +3972,96 @@ function openDocumentEditor() {
     currentEditingUrl = docInfo.url;
     currentEditingName = docInfo.name;
     
-    // 设置编辑器标题
-    document.getElementById('editorDocTitle').textContent = `编辑: ${currentEditingName}`;
+    // 更新侧边栏标题和图标
+    document.getElementById('sidebarTitleIcon').textContent = '✏️';
+    document.getElementById('previewDocTitle').textContent = `编辑: ${currentEditingName}`;
     document.getElementById('editorStatus').textContent = '正在加载文档内容...';
     
-    // 显示编辑器模态窗口
-    const modal = document.getElementById('documentEditorModal');
-    modal.classList.add('show');
-    modal.style.display = 'flex';
-    
-    // 禁用页面滚动
-    document.body.style.overflow = 'hidden';
+    // 隐藏预览模式UI，显示编辑模式UI
+    document.getElementById('previewToolbar').style.display = 'none';
+    document.getElementById('previewContent').style.display = 'none';
+    document.getElementById('editorToolbar').style.display = 'flex';
+    document.getElementById('editorContent').style.display = 'flex';
     
     // 加载文档内容到编辑器
-    loadDocumentForEditing();
+    loadDocumentForEditingInSidebar();
     
-    console.log('✅ 文档编辑器已打开');
+    console.log('✅ 已切换到编辑模式');
 }
 
-// 加载文档内容到编辑器
+// 切换到预览模式（在侧边栏中）
+function switchToPreviewMode() {
+    console.log('👁️ 切换到预览模式');
+    
+    // 更新侧边栏标题和图标
+    document.getElementById('sidebarTitleIcon').textContent = '📖';
+    document.getElementById('previewDocTitle').textContent = currentEditingName || '文档预览';
+    
+    // 隐藏编辑模式UI，显示预览模式UI
+    document.getElementById('editorToolbar').style.display = 'none';
+    document.getElementById('editorContent').style.display = 'none';
+    document.getElementById('aiCommandPanel').style.display = 'none';
+    document.getElementById('previewToolbar').style.display = 'flex';
+    document.getElementById('previewContent').style.display = 'flex';
+    
+    // 如果有编辑的内容，更新预览
+    const editor = document.getElementById('markdownEditor');
+    if (editor && editor.value) {
+        updatePreviewFromEditor();
+    }
+    
+    console.log('✅ 已切换到预览模式');
+}
+
+// 打开文档编辑器（保留原有功能，用于兼容）
+function openDocumentEditor() {
+    console.log('📝 打开文档编辑器 - 切换到侧边栏编辑模式');
+    switchToEditMode();
+}
+
+// 加载文档内容到侧边栏编辑器
+async function loadDocumentForEditingInSidebar() {
+    try {
+        console.log(`📥 加载文档内容到侧边栏: ${currentEditingUrl}`);
+        
+        const response = await fetch(currentEditingUrl, {
+            method: 'GET',
+            mode: 'cors',
+            headers: {
+                'Accept': 'text/plain, text/markdown, */*'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const markdownContent = await response.text();
+        currentEditingContent = markdownContent;
+        
+        // 设置编辑器内容
+        const editor = document.getElementById('markdownEditor');
+        editor.value = markdownContent;
+        
+        // 更新状态和统计
+        document.getElementById('editorStatus').textContent = '文档加载完成，可以开始编辑';
+        updateEditorStats();
+        
+        // 实时预览已移除
+        
+        // 设置编辑器事件监听
+        setupSidebarEditorEventListeners();
+        
+        console.log('✅ 文档内容加载到侧边栏完成');
+        
+    } catch (error) {
+        console.error('❌ 加载文档内容失败:', error);
+        document.getElementById('editorStatus').textContent = `加载失败: ${error.message}`;
+        showNotification('文档内容加载失败', 'error');
+    }
+}
+
+// 加载文档内容到编辑器（原有模态窗口功能保留）
 async function loadDocumentForEditing() {
     try {
         console.log(`📥 加载文档内容: ${currentEditingUrl}`);
@@ -4024,8 +4089,7 @@ async function loadDocumentForEditing() {
         document.getElementById('editorStatus').textContent = '文档加载完成，可以开始编辑';
         updateEditorStats();
         
-        // 初始预览
-        updateEditorPreview();
+        // 实时预览已移除
         
         // 设置编辑器事件监听
         setupEditorEventListeners();
@@ -4037,6 +4101,87 @@ async function loadDocumentForEditing() {
         document.getElementById('editorStatus').textContent = `加载失败: ${error.message}`;
         showNotification('文档内容加载失败', 'error');
     }
+}
+
+// 从编辑器内容更新预览
+function updatePreviewFromEditor() {
+    const editor = document.getElementById('markdownEditor');
+    const previewResult = document.getElementById('previewResult');
+    
+    if (!editor || !previewResult) {
+        console.warn('编辑器或预览区域未找到');
+        return;
+    }
+    
+    const markdownContent = editor.value;
+    
+    try {
+        // 渲染Markdown内容
+        let htmlContent;
+        if (typeof marked !== 'undefined' && !window.markedLoadFailed) {
+            if (typeof marked.parse === 'function') {
+                htmlContent = marked.parse(markdownContent);
+            } else if (typeof marked === 'function') {
+                htmlContent = marked(markdownContent);
+            } else {
+                throw new Error('无法识别的marked.js API');
+            }
+        } else {
+            htmlContent = renderMarkdownFallback(markdownContent);
+        }
+        
+        // 增强图片处理
+        htmlContent = enhanceImages(htmlContent);
+        
+        // 更新预览内容
+        previewResult.innerHTML = htmlContent;
+        previewResult.style.display = 'block';
+        
+        // 隐藏加载和错误状态
+        document.getElementById('previewLoading').style.display = 'none';
+        document.getElementById('previewError').style.display = 'none';
+        
+        console.log('✅ 预览内容已从编辑器更新');
+        
+    } catch (error) {
+        console.error('❌ 预览更新失败:', error);
+        document.getElementById('previewError').style.display = 'block';
+        document.getElementById('previewErrorMsg').textContent = `预览失败: ${error.message}`;
+    }
+}
+
+// 设置侧边栏编辑器事件监听
+function setupSidebarEditorEventListeners() {
+    const editor = document.getElementById('markdownEditor');
+    
+    if (!editor) {
+        console.warn('编辑器元素未找到');
+        return;
+    }
+    
+    // 移除之前的事件监听器
+    editor.removeEventListener('input', handleEditorInput);
+    
+    // 添加新的事件监听器
+    editor.addEventListener('input', handleSidebarEditorInput);
+    
+    console.log('✅ 侧边栏编辑器事件监听器设置完成');
+}
+
+// 处理侧边栏编辑器输入
+function handleSidebarEditorInput() {
+    updateEditorStats();
+    
+    // 标记内容已修改
+    const editor = document.getElementById('markdownEditor');
+    if (editor && editor.value !== currentEditingContent) {
+        document.getElementById('editorStatus').textContent = '文档已修改，记得保存';
+    }
+}
+
+// 处理侧边栏编辑器滚动（已移除实时预览，保留函数以防其他地方调用）
+function handleSidebarEditorScroll() {
+    // 实时预览已移除，此函数保留为空
 }
 
 // 设置编辑器事件监听
@@ -4057,7 +4202,6 @@ function setupEditorEventListeners() {
 // 处理编辑器输入
 function handleEditorInput() {
     updateEditorStats();
-    updateEditorPreview();
     
     // 标记内容已修改
     const status = document.getElementById('editorStatus');
@@ -4066,132 +4210,42 @@ function handleEditorInput() {
     }
 }
 
-// 处理编辑器滚动（同步预览滚动）
+// 处理编辑器滚动（已移除实时预览，保留函数以防其他地方调用）
 function handleEditorScroll() {
-    const editor = document.getElementById('markdownEditor');
-    const preview = document.getElementById('editorPreview');
-    
-    // 计算滚动比例
-    const scrollRatio = editor.scrollTop / (editor.scrollHeight - editor.clientHeight);
-    
-    // 同步预览滚动
-    if (isFinite(scrollRatio)) {
-        preview.scrollTop = scrollRatio * (preview.scrollHeight - preview.clientHeight);
-    }
+    // 实时预览已移除，此函数保留为空
 }
 // --- 增强版：Markdown编辑器滚动同步 (包含图片加载处理) ---
+// 注意：实时预览已移除，此部分代码已简化
 
 document.addEventListener('DOMContentLoaded', () => {
     const markdownEditor = document.getElementById('markdownEditor');
-    const editorPreview = document.getElementById('editorPreview');
 
-    if (!markdownEditor || !editorPreview) {
-        console.error("未能找到编辑器或预览元素，无法设置滚动同步。");
+    if (!markdownEditor) {
+        console.error("未能找到编辑器元素。");
         return;
     }
 
     /**
-     * 更新预览区域并处理图片加载
-     * 这是实现智能同步的核心函数
+     * 处理编辑器输入（实时预览已移除）
      */
-    const handlePreviewUpdate = () => {
-        // 1. 渲染Markdown内容
-        const markdownText = markdownEditor.value;
-        // 假设 'marked' 库已在全局可用
-        editorPreview.innerHTML = marked.parse(markdownText || '');
-
-        // 2. 处理图片加载
-        const images = editorPreview.querySelectorAll('img');
-        if (images.length === 0) {
-            // 如果没有图片，确保同步是启用的
-            if (window.scrollSyncHandler) window.scrollSyncHandler.enable();
-            return;
-        }
-
-        const promises = [];
-        // 在图片加载期间，暂时禁用滚动同步，防止跳动
-        if (window.scrollSyncHandler) window.scrollSyncHandler.disable();
-
-        images.forEach(img => {
-            const promise = new Promise((resolve) => {
-                // 如果图片已加载完成 (例如来自缓存)，立即解析
-                if (img.complete) {
-                    resolve();
-                } else {
-                    img.onload = resolve;
-                    // 在图片加载失败时也解析，以防无限期阻塞
-                    img.onerror = () => {
-                        console.warn('图片加载失败:', img.src);
-                        resolve(); 
-                    };
-                }
-            });
-            promises.push(promise);
-        });
-
-        // 3. 所有图片处理完毕后 (加载成功或失败)
-        Promise.all(promises).then(() => {
-            // 短暂延迟以允许浏览器完成渲染和布局重排
-            setTimeout(() => {
-                if (window.scrollSyncHandler) {
-                    // 重新启用同步
-                    window.scrollSyncHandler.enable();
-                    // 并从编辑器到预览区触发一次主动同步，以校准位置
-                    window.scrollSyncHandler.sync(markdownEditor, editorPreview);
-                }
-            }, 100); // 100毫秒的延迟通常足够
-        });
-    };
-
-    // 创建一个全局的滚动同步处理器对象来管理状态
-    window.scrollSyncHandler = {
-        isSyncing: false,
-        isEnabled: true,
+    const handleEditorInput = () => {
+        // 更新编辑器统计信息
+        updateEditorStats();
         
-        // 核心同步逻辑
-        sync: function(source, target) {
-            if (this.isSyncing || !this.isEnabled) return;
-            this.isSyncing = true;
-
-            const sourceScrollHeight = source.scrollHeight - source.clientHeight;
-            // 处理源高度为0的情况，避免除以零
-            if (sourceScrollHeight <= 0) {
-                this.isSyncing = false;
-                return;
+        // 标记内容已修改
+        const editor = document.getElementById('markdownEditor');
+        if (editor && editor.value !== currentEditingContent) {
+            const status = document.getElementById('editorStatus');
+            if (status && !status.textContent.includes('已修改')) {
+                status.textContent = '文档已修改，记得保存';
             }
-
-            const scrollPercentage = source.scrollTop / sourceScrollHeight;
-            const targetScrollHeight = target.scrollHeight - target.clientHeight;
-            
-            target.scrollTop = scrollPercentage * targetScrollHeight;
-
-            // 使用 requestAnimationFrame 来平滑滚动并避免竞争条件
-            requestAnimationFrame(() => {
-                this.isSyncing = false;
-            });
-        },
-
-        // 控制启用/禁用的方法
-        enable: function() { this.isEnabled = true; },
-        disable: function() { this.isEnabled = false; }
+        }
     };
 
-    // 绑定滚动事件监听器
-    markdownEditor.addEventListener('scroll', () => {
-        window.scrollSyncHandler.sync(markdownEditor, editorPreview);
-    });
-
-    editorPreview.addEventListener('scroll', () => {
-        window.scrollSyncHandler.sync(editorPreview, markdownEditor);
-    });
-
-    // 关键：将编辑器的输入事件绑定到新的处理函数
-    markdownEditor.addEventListener('input', handlePreviewUpdate);
-
-    // 如果编辑器在加载时已有内容，则触发一次初始更新
-    if (markdownEditor.value) {
-        handlePreviewUpdate();
-    }
+    // 绑定编辑器输入事件监听器
+    markdownEditor.addEventListener('input', handleEditorInput);
+    
+    console.log('✅ 编辑器事件监听器已设置（实时预览已移除）');
 });
 
 // 更新编辑器统计信息
@@ -4206,47 +4260,10 @@ function updateEditorStats() {
     document.getElementById('editorLineCount').textContent = `行数: ${lineCount}`;
 }
 
-// 更新编辑器预览
+// 更新编辑器预览（已移除实时预览功能）
 function updateEditorPreview() {
-    const editor = document.getElementById('markdownEditor');
-    const preview = document.getElementById('editorPreview');
-    const content = editor.value;
-    
-    if (!content.trim()) {
-        preview.innerHTML = '<p style="color: var(--text-secondary); text-align: center; margin-top: 50px;">开始输入以查看预览...</p>';
-        return;
-    }
-    
-    let htmlContent;
-    
-    // 使用marked.js渲染（如果可用）
-    if (typeof marked !== 'undefined' && !window.markedLoadFailed) {
-        try {
-            if (typeof marked.parse === 'function') {
-                htmlContent = marked.parse(content);
-            } else if (typeof marked === 'function') {
-                htmlContent = marked(content);
-            } else {
-                throw new Error('无法识别的marked.js API');
-            }
-        } catch (markedError) {
-            console.warn('⚠️ marked.js渲染失败，使用备用方法:', markedError);
-            htmlContent = renderMarkdownFallback(content);
-        }
-    } else {
-        htmlContent = renderMarkdownFallback(content);
-    }
-    
-    // 应用图片增强
-    htmlContent = enhanceImages(htmlContent);
-    
-    // 更新预览内容
-    preview.innerHTML = htmlContent;
-    
-    // 设置图片处理
-    setTimeout(() => {
-        setupImageHandling();
-    }, 100);
+    // 实时预览已移除，此函数保留为空以防其他地方调用
+    console.log('📝 实时预览功能已移除');
 }
 
 // 关闭文档编辑器
@@ -4304,9 +4321,8 @@ function insertMarkdownTemplate() {
     editor.value = newValue;
     editor.focus();
     
-    // 更新预览和统计
+    // 更新统计
     updateEditorStats();
-    updateEditorPreview();
     
     showNotification('Markdown模板已插入', 'success');
 }
@@ -4420,5 +4436,9 @@ window.closeDocumentEditor = closeDocumentEditor;
 window.insertMarkdownTemplate = insertMarkdownTemplate;
 window.downloadEditedContent = downloadEditedContent;
 window.saveEditedDocument = saveEditedDocument;
+window.switchToEditMode = switchToEditMode;
+window.switchToPreviewMode = switchToPreviewMode;
+window.updatePreviewFromEditor = updatePreviewFromEditor;
 
 console.log('✏️ 文档编辑器功能已加载！');
+console.log('🔄 侧边栏编辑模式切换功能已加载！');

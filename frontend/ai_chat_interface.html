@@ -158,6 +158,124 @@
                 </div>
             </div>
         </div>
+
+        <!-- 🆕 右侧Markdown预览/编辑侧边栏 -->
+        <div class="preview-sidebar" id="previewSidebar">
+            <div class="preview-sidebar-header">
+                <h2 class="preview-sidebar-title">
+                    <span class="title-icon" id="sidebarTitleIcon">📖</span>
+                    <span id="previewDocTitle">文档预览</span>
+                </h2>
+                <button class="preview-sidebar-close" onclick="closeMarkdownPreview()">×</button>
+            </div>
+
+            <!-- 预览模式工具栏 -->
+            <div class="preview-toolbar" id="previewToolbar">
+                <div class="toolbar-left">
+                    <button class="preview-btn" onclick="downloadOriginalDoc()">
+                        <span>📄</span> 下载原文件
+                    </button>
+                    <button class="preview-btn" onclick="refreshPreview()">
+                        <span>🔄</span> 刷新预览
+                    </button>
+                    <button class="preview-btn edit-btn" onclick="switchToEditMode()">
+                        <span>✏️</span> 编辑文档
+                    </button>
+                </div>
+                <div class="preview-status">
+                    <span id="previewStatus">准备中...</span>
+                </div>
+            </div>
+
+            <!-- 编辑模式工具栏 -->
+            <div class="editor-toolbar" id="editorToolbar" style="display: none;">
+                <div class="editor-info">
+                    <span id="editorStatus">准备编辑...</span>
+                </div>
+                <div class="editor-actions">
+                    <button class="editor-btn" onclick="insertMarkdownTemplate()">
+                        <span>📝</span> 插入模板
+                    </button>
+                    <button class="editor-btn ai-btn" onclick="initiateAIEdit()">
+                        <span>🤖</span> AI编辑
+                    </button>
+                    <button class="editor-btn" onclick="downloadEditedContent()">
+                        <span>💾</span> 下载
+                    </button>
+                    <button class="editor-btn" onclick="switchToPreviewMode()">
+                        <span>👁️</span> 预览模式
+                    </button>
+                    <button class="editor-btn primary" onclick="saveEditedDocument()">
+                        <span>✅</span> 保存修改
+                    </button>
+                </div>
+            </div>
+
+            <!-- 预览内容区域 -->
+            <div class="preview-content" id="previewContent">
+                <div id="previewLoading" class="preview-loading">
+                    <div class="loading-spinner"></div>
+                    <p>正在获取和渲染文档...</p>
+                </div>
+                <div id="previewError" class="preview-error" style="display: none;">
+                    <div class="error-icon">⚠️</div>
+                    <h3>预览失败</h3>
+                    <p id="previewErrorMsg">无法获取文档内容</p>
+                    <button class="retry-btn" onclick="refreshPreview()">重试</button>
+                </div>
+                <div id="previewResult" class="preview-result" style="display: none;">
+                    <!-- 渲染的Markdown内容将显示在这里 -->
+                </div>
+            </div>
+
+            <!-- 编辑内容区域 -->
+            <div class="editor-content" id="editorContent" style="display: none;">
+                <div class="editor-pane editor-pane-full">
+                    <div class="pane-header">📝 Markdown 编辑器</div>
+                    <textarea id="markdownEditor" class="markdown-editor" placeholder="在此输入或修改 Markdown 内容..."></textarea>
+                    <div class="editor-status">
+                        <span id="editorWordCount">字符数: 0</span>
+                        <span id="editorLineCount">行数: 1</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI编辑面板 -->
+            <div id="aiCommandPanel" class="ai-command-panel" style="display: none;">
+                <div class="ai-panel-header">
+                    <h3>🤖 AI 编辑模式</h3>
+                    <button id="aiPanelCloseBtn" class="ai-panel-close">×</button>
+                </div>
+                <div class="ai-panel-content">
+                    <div class="ai-panel-group">
+                        <label>已选中文本</label>
+                        <div id="aiSelectedTextPreview" class="ai-selected-text-preview">请在左侧编辑器选择文本...</div>
+                    </div>
+                    <div class="ai-panel-group">
+                        <label for="aiCommandInput">修改要求</label>
+                        <textarea id="aiCommandInput" class="ai-command-input" placeholder="请描述您希望AI如何修改这段文本..."></textarea>
+                    </div>
+                </div>
+                <div id="aiDiffViewContainer" class="ai-diff-view-container">
+                    <!-- JS将在这里填充差异对比和手动编辑区 -->
+                </div>
+                <div class="ai-panel-footer">
+                    <div id="aiPanelActions">
+                        <button class="ai-panel-btn" id="aiProcessBtn" onclick="processAIEdit()">
+                            <span>✨</span> 生成修改
+                        </button>
+                    </div>
+                    <div id="aiDiffActions" style="display: none;">
+                        <button class="ai-panel-btn reject" onclick="rejectAIEdit()">
+                            <span>❌</span> 拒绝
+                        </button>
+                        <button class="ai-panel-btn accept" onclick="acceptAIEdit()">
+                            <span>✅</span> 接受
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- 设置面板 -->
@@ -231,51 +349,7 @@
         </div>
     </div>
 
-    <!-- 🆕 Markdown预览器模态窗口 -->
-    <div id="markdownPreviewModal" class="modal-overlay" style="display: none;">
-        <div class="modal-content preview-modal">
-            <div class="modal-header">
-                <h2 class="modal-title">
-                    <span class="title-icon">📖</span>
-                    <span id="previewDocTitle">文档预览</span>
-                </h2>
-                <button class="modal-close" onclick="closeMarkdownPreview()">×</button>
-            </div>
 
-            <div class="preview-toolbar">
-                <div class="toolbar-left">
-                    <button class="preview-btn" onclick="downloadOriginalDoc()">
-                        <span>📄</span> 下载原文件
-                    </button>
-                    <button class="preview-btn" onclick="refreshPreview()">
-                        <span>🔄</span> 刷新预览
-                    </button>
-                    <button class="preview-btn edit-btn" onclick="openDocumentEditor()">
-                        <span>✏️</span> 编辑文档
-                    </button>
-                </div>
-                <div class="preview-status">
-                    <span id="previewStatus">准备中...</span>
-                </div>
-            </div>
-
-            <div class="preview-content">
-                <div id="previewLoading" class="preview-loading">
-                    <div class="loading-spinner"></div>
-                    <p>正在获取和渲染文档...</p>
-                </div>
-                <div id="previewError" class="preview-error" style="display: none;">
-                    <div class="error-icon">⚠️</div>
-                    <h3>预览失败</h3>
-                    <p id="previewErrorMsg">无法获取文档内容</p>
-                    <button class="retry-btn" onclick="refreshPreview()">重试</button>
-                </div>
-                <div id="previewResult" class="preview-result" style="display: none;">
-                    <!-- 渲染的Markdown内容将显示在这里 -->
-                </div>
-            </div>
-        </div>
-    </div>
 
     <!-- 🆕 文档编辑器模态窗口 -->
     <div id="documentEditorModal" class="modal-overlay" style="display: none;">
@@ -308,57 +382,20 @@
                 </div>
             </div>
 
-            <!-- ⭐️⭐️⭐️ 全新的AI编辑面板 ⭐️⭐️⭐️ -->
-            <div id="aiCommandPanel" class="ai-command-panel">
-                <div class="ai-panel-header">
-                    <h3>🤖 AI 编辑模式</h3>
-                    <!-- ⭐️ 修复：移除onclick，增加ID ⭐️ -->
-                    <button id="aiPanelCloseBtn" class="ai-panel-close">×</button>
-                </div>
-                <div class="ai-panel-content">
-                    <div class="ai-panel-group">
-                        <label>已选中文本</label>
-                        <div id="aiSelectedTextPreview" class="ai-selected-text-preview">请在左侧编辑器选择文本...</div>
-                    </div>
-                    <div class="ai-panel-group">
-                        <label for="aiCommandInput">修改要求</label>
-                        <textarea id="aiCommandInput" class="ai-command-input" placeholder="请描述您希望AI如何修改这段文本..."></textarea>
-                    </div>
-                </div>
-                <!-- 容器结构更新 -->
-                <div id="aiDiffViewContainer" class="ai-diff-view-container">
-                    <!-- JS将在这里填充差异对比和手动编辑区 -->
-                </div>
-                <div class="ai-panel-footer">
-                    <div id="aiPanelActions">
-                        <button class="ai-panel-btn" id="aiProcessBtn" onclick="processAIEdit()">
-                            <span>✨</span> 生成修改
-                        </button>
-                    </div>
-                    <div id="aiDiffActions" style="display: none;">
-                        <button class="ai-panel-btn reject" onclick="rejectAIEdit()">
-                            <span>❌</span> 拒绝
-                        </button>
-                        <button class="ai-panel-btn accept" onclick="acceptAIEdit()">
-                            <span>✅</span> 接受
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <!-- ⭐️⭐️⭐️ AI编辑面板结束 ⭐️⭐️⭐️ -->
+            <!-- AI编辑面板已移至侧边栏，此处不再需要 -->
 
             <div class="editor-content">
                 <div class="editor-pane">
                     <div class="pane-header">📝 Markdown 编辑器</div>
-                    <textarea id="markdownEditor" class="markdown-editor" placeholder="在此输入或修改 Markdown 内容..."></textarea>
+                    <textarea id="modalMarkdownEditor" class="markdown-editor" placeholder="在此输入或修改 Markdown 内容..."></textarea>
                     <div class="editor-status">
-                        <span id="editorWordCount">字符数: 0</span>
-                        <span id="editorLineCount">行数: 1</span>
+                        <span id="modalEditorWordCount">字符数: 0</span>
+                        <span id="modalEditorLineCount">行数: 1</span>
                     </div>
                 </div>
                 <div class="editor-pane">
                     <div class="pane-header">👁️ 实时预览</div>
-                    <div id="editorPreview" class="editor-preview">
+                    <div id="modalEditorPreview" class="editor-preview">
                         <p style="color: var(--text-secondary); text-align: center; margin-top: 50px;">开始输入以查看预览...</p>
                     </div>
                 </div>
