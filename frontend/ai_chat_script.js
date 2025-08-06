@@ -2,7 +2,8 @@
 let chatStarted = false;
 let currentChatId = null;
 let chatHistory = [];
-let currentFiles = [];
+let currentFiles = []; // 项目文件列表（左侧文件树显示）
+let conversationFiles = []; // 当前对话文件列表（底部显示）
 let currentProject = null; // 当前选中的项目信息
 
 // 🆕 数据库相关状态
@@ -566,8 +567,8 @@ async function handleTempFileUpload(event) {
                     verificationDetails: data.verification_details  // 验证详情
                 };
 
-                currentFiles.push(fileInfo);
-                console.log('📎 临时文件已添加到currentFiles:', fileInfo.name, '当前文件数量:', currentFiles.length);
+                conversationFiles.push(fileInfo);
+                console.log('📎 临时文件已添加到conversationFiles:', fileInfo.name, '当前文件数量:', conversationFiles.length);
                 console.log('🔍 文件验证状态:', fileInfo.verified, fileInfo.verificationDetails);
                 updateCurrentFilesUI();
 
@@ -714,18 +715,18 @@ async function addToKnowledgeBase(fileData) {
     }
 }
 
-// 更新当前文件列表UI
+// 更新当前对话文件列表UI
 function updateCurrentFilesUI() {
     const currentFilesContainer = document.getElementById('currentFiles');
     const currentFilesList = document.getElementById('currentFilesList');
 
-    if (currentFiles.length === 0) {
+    if (conversationFiles.length === 0) {
         currentFilesContainer.classList.remove('show');
         return;
     }
 
     currentFilesContainer.classList.add('show');
-    currentFilesList.innerHTML = currentFiles.map((file, index) => `
+    currentFilesList.innerHTML = conversationFiles.map((file, index) => `
         <div class="current-file-item">
             <span>${getFileIcon(file.type)}</span>
             <span>${file.name}</span>
@@ -770,16 +771,25 @@ function formatFileSize(bytes) {
 
 // 从临时文件添加到知识库
 async function addToKnowledgeFromTemp(index) {
-    const file = currentFiles[index];
+    const file = conversationFiles[index];
     if (!file) return;
 
     try {
         await addToKnowledgeBase(file);
         showNotification(`文件 "${file.name}" 已添加到知识库`, 'success');
 
-        // 更新文件状态
+        // 更新文件状态并移动到项目文件列表
         file.isTemporary = false;
+        
+        // 从对话文件列表中移除
+        conversationFiles.splice(index, 1);
+        
+        // 添加到项目文件列表
+        currentFiles.push(file);
+        
+        // 更新UI显示
         updateCurrentFilesUI();
+        addFileToTree(file);
     } catch (error) {
         showNotification('添加到知识库失败', 'error');
     }
@@ -787,21 +797,21 @@ async function addToKnowledgeFromTemp(index) {
 
 // 移除当前文件
 function removeCurrentFile(index) {
-    currentFiles.splice(index, 1);
+    conversationFiles.splice(index, 1);
     updateCurrentFilesUI();
 }
 
-// 清空所有当前文件
+// 清空所有当前对话文件
 function clearAllCurrentFiles() {
-    if (currentFiles.length === 0) {
+    if (conversationFiles.length === 0) {
         showNotification('没有文件需要清空', 'info');
         return;
     }
 
-    const fileCount = currentFiles.length;
-    currentFiles = [];
+    const fileCount = conversationFiles.length;
+    conversationFiles = [];
     updateCurrentFilesUI();
-    console.log('🗑️ 已清空所有当前文件');
+    console.log('🗑️ 已清空所有当前对话文件');
     showNotification(`已清空 ${fileCount} 个文件`, 'success');
 }
 
@@ -842,7 +852,7 @@ function updateSendButton() {
     const sendButton = document.getElementById('sendButton');
 
     const hasText = inputField.value.trim().length > 0;
-    const hasFiles = currentFiles.length > 0;
+    const hasFiles = conversationFiles.length > 0;
 
     // 检查上传超时
     checkUploadTimeout();
@@ -866,12 +876,12 @@ async function sendMessage() {
     const inputField = document.getElementById('inputField');
     const message = inputField.value.trim();
 
-    if (!message && currentFiles.length === 0) return;
+    if (!message && conversationFiles.length === 0) return;
 
     console.log('📤 发送消息:', message);
     console.log('🆔 当前对话ID:', currentChatId);
     console.log('📊 对话状态 - chatStarted:', chatStarted);
-    console.log('📎 当前文件列表 currentFiles:', currentFiles.length, currentFiles.map(f => f.name));
+    console.log('📎 当前对话文件列表 conversationFiles:', conversationFiles.length, conversationFiles.map(f => f.name));
 
     if (!chatStarted) {
         console.log('🆕 对话未开始，创建新对话');
@@ -900,12 +910,12 @@ async function sendMessage() {
         // 构建请求数据
         const requestData = {
             message: message,
-            files: currentFiles,
+            files: conversationFiles,
             project: currentProject  // 传递项目信息
         };
 
         console.log('📤 发送到API的数据:', requestData);
-        console.log('📎 发送的文件详情:', currentFiles.map(f => ({ name: f.name, path: f.path, type: f.type })));
+        console.log('📎 发送的文件详情:', conversationFiles.map(f => ({ name: f.name, path: f.path, type: f.type })));
 
         // 🌊 使用流式思考输出
         const finalResponse = await handleStreamingThoughts(requestData, thinkingProcess);
@@ -916,10 +926,26 @@ async function sendMessage() {
             saveToHistory(message, finalResponse);
         }
 
+        // 🆕 消息发送流程完成后无条件清空对话文件列表，避免文件持久化在对话框中
+        if (conversationFiles.length > 0) {
+            console.log('🗑️ 清空已发送的对话文件列表，文件数量:', conversationFiles.length);
+            conversationFiles = [];
+            updateCurrentFilesUI();
+            console.log('✅ 对话文件列表已清空');
+        }
+
     } catch (error) {
         console.error('发送消息失败:', error);
         removeThinkingProcess(thinkingProcess);
         showNotification('发送失败: ' + error.message, 'error');
+        
+        // 🆕 即使发送失败也清空对话文件列表
+        if (conversationFiles.length > 0) {
+            console.log('🗑️ 发送失败，清空对话文件列表，文件数量:', conversationFiles.length);
+            conversationFiles = [];
+            updateCurrentFilesUI();
+            console.log('✅ 对话文件列表已清空');
+        }
     }
 }
 
@@ -958,10 +984,10 @@ function startNewChat() {
     // 更新项目统计 - 对话数量
     updateProjectStats('chats');
 
-    // 🆕 不再清空当前文件列表，保留用户已上传的文件
-    // currentFiles = [];
-    // updateCurrentFilesUI();
-    console.log('📎 保留已上传的文件，当前文件数量:', currentFiles.length);
+    // 清空当前文件列表，新对话开始时不保留上次对话的文件
+    currentFiles = [];
+    updateCurrentFilesUI();
+    console.log('📎 已清空文件列表，开始新对话');
 
     // 添加欢迎消息 - 确保在DOM更新后执行
     setTimeout(() => {
@@ -3975,7 +4001,6 @@ function switchToEditMode() {
     // 更新侧边栏标题和图标
     document.getElementById('sidebarTitleIcon').textContent = '✏️';
     document.getElementById('previewDocTitle').textContent = `编辑: ${currentEditingName}`;
-    document.getElementById('editorStatus').textContent = '正在加载文档内容...';
     
     // 隐藏预览模式UI，显示编辑模式UI
     document.getElementById('previewToolbar').style.display = 'none';
@@ -3983,8 +4008,19 @@ function switchToEditMode() {
     document.getElementById('editorToolbar').style.display = 'flex';
     document.getElementById('editorContent').style.display = 'flex';
     
-    // 加载文档内容到编辑器
-    loadDocumentForEditingInSidebar();
+    // 如果有已编辑的内容，直接使用，否则加载原始文档
+    if (currentEditingContent && currentEditingContent.trim()) {
+        console.log('🔄 恢复已编辑的内容');
+        const editor = document.getElementById('markdownEditor');
+        editor.value = currentEditingContent;
+        document.getElementById('editorStatus').textContent = '已恢复编辑内容';
+        updateEditorStats();
+        setupSidebarEditorEventListeners();
+    } else {
+        console.log('📥 加载原始文档内容');
+        document.getElementById('editorStatus').textContent = '正在加载文档内容...';
+        loadDocumentForEditingInSidebar();
+    }
     
     console.log('✅ 已切换到编辑模式');
 }
@@ -3992,6 +4028,13 @@ function switchToEditMode() {
 // 切换到预览模式（在侧边栏中）
 function switchToPreviewMode() {
     console.log('👁️ 切换到预览模式');
+    
+    // 保存当前编辑的内容
+    const editor = document.getElementById('markdownEditor');
+    if (editor && editor.value) {
+        currentEditingContent = editor.value;
+        console.log('💾 已保存编辑内容到currentEditingContent');
+    }
     
     // 更新侧边栏标题和图标
     document.getElementById('sidebarTitleIcon').textContent = '📖';
@@ -4005,7 +4048,6 @@ function switchToPreviewMode() {
     document.getElementById('previewContent').style.display = 'flex';
     
     // 如果有编辑的内容，更新预览
-    const editor = document.getElementById('markdownEditor');
     if (editor && editor.value) {
         updatePreviewFromEditor();
     }
@@ -4037,7 +4079,11 @@ async function loadDocumentForEditingInSidebar() {
         }
         
         const markdownContent = await response.text();
-        currentEditingContent = markdownContent;
+        
+        // 只有在没有已编辑内容时才更新currentEditingContent
+        if (!currentEditingContent || !currentEditingContent.trim()) {
+            currentEditingContent = markdownContent;
+        }
         
         // 设置编辑器内容
         const editor = document.getElementById('markdownEditor');
@@ -4329,10 +4375,18 @@ function insertMarkdownTemplate() {
 
 // 下载编辑后的内容
 function downloadEditedContent() {
-    const editor = document.getElementById('markdownEditor');
-    const content = editor.value;
+    // 优先使用保存的编辑内容，如果没有则从编辑器获取
+    let content = currentEditingContent;
     
-    if (!content.trim()) {
+    // 如果没有保存的内容，尝试从编辑器获取
+    if (!content || !content.trim()) {
+        const editor = document.getElementById('markdownEditor');
+        if (editor && editor.value) {
+            content = editor.value;
+        }
+    }
+    
+    if (!content || !content.trim()) {
         showNotification('没有内容可下载', 'warning');
         return;
     }

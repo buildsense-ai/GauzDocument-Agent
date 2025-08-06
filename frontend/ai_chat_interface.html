@@ -171,16 +171,26 @@
 
             <!-- 预览模式工具栏 -->
             <div class="preview-toolbar" id="previewToolbar">
-                <div class="toolbar-left">
-                    <button class="preview-btn" onclick="downloadOriginalDoc()">
-                        <span>📄</span> 下载原文件
-                    </button>
-                    <button class="preview-btn" onclick="refreshPreview()">
-                        <span>🔄</span> 刷新预览
-                    </button>
-                    <button class="preview-btn edit-btn" onclick="switchToEditMode()">
-                        <span>✏️</span> 编辑文档
-                    </button>
+                <div class="toolbar-actions">
+                    <div class="toolbar-buttons">
+                        <button class="preview-btn" onclick="downloadOriginalDoc()">
+                            <span>📄</span> 下载原文件
+                        </button>
+                        <button class="preview-btn" onclick="downloadEditedContent()">
+                            <span>💾</span> 下载修改版
+                        </button>
+                        <button class="preview-btn" onclick="refreshPreview()">
+                            <span>🔄</span> 刷新预览
+                        </button>
+                        <button class="preview-btn edit-btn" onclick="switchToEditMode()">
+                                <span>✏️</span> 编辑文档
+                            </button>
+                            <button class="preview-btn close-btn" onclick="closeMarkdownPreview()" title="关闭文档">
+                                <span>×</span>
+                            </button>
+                        </div>
+                        <div class="toolbar-close">
+                        </div>
                 </div>
                 <div class="preview-status">
                     <span id="previewStatus">准备中...</span>
@@ -204,6 +214,9 @@
                     </button>
                     <button class="editor-btn primary" onclick="saveEditedDocument()">
                         <span>✅</span> 保存修改
+                    </button>
+                    <button class="editor-btn close-btn" onclick="closeMarkdownPreview()" title="关闭文档">
+                        <span>×</span>
                     </button>
                 </div>
             </div>

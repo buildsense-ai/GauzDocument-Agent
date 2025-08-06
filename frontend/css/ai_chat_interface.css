@@ -92,7 +92,8 @@ body {
 }
 
 .sidebar {
-    width: 350px;
+    flex: 0 0 15%;
+    width: 15%;
     background: var(--bg-primary);
     border-right: 1px solid var(--border-color);
     display: flex;
@@ -101,7 +102,7 @@ body {
 }
 
 .sidebar.collapsed {
-    margin-left: -330px;
+    margin-left: -15%;
 }
 
 .sidebar-header {
@@ -358,7 +359,8 @@ body {
 
 /* 主要内容区域 */
 .main-content {
-    flex: 1;
+    flex: 0 0 85%;
+    width: 85%;
     display: flex;
     flex-direction: column;
     background: var(--bg-primary);
@@ -525,6 +527,30 @@ body {
     word-wrap: break-word;
     position: relative;
     transition: all 0.2s ease;
+}
+
+/* 限制message-content中图片的尺寸 */
+.message-content img {
+    max-width: 100%;
+    max-height: 400px;
+    width: auto;
+    height: auto;
+    border-radius: 8px;
+    margin: 8px 0;
+    display: block;
+    box-shadow: var(--shadow-sm);
+}
+
+.message-content .image-container {
+    max-width: 100%;
+    margin: 12px 0;
+}
+
+.message-content .image-container img {
+    max-width: 100% !important;
+    max-height: 400px !important;
+    width: auto !important;
+    height: auto !important;
 }
 
 .message-content:hover {
@@ -1368,12 +1394,34 @@ body {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+    align-items: center;
+}
+
+.preview-sidebar .toolbar-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.preview-sidebar .toolbar-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1;
+}
+
+.preview-sidebar .toolbar-close {
+    margin-left: auto;
+    flex-shrink: 0;
 }
 
 .edit-btn {
     background: var(--success-color) !important;
     color: white !important;
     border-color: var(--success-color) !important;
+    min-width: auto !important;
+    width: auto !important;
 }
 
 .edit-btn:hover {
@@ -1393,8 +1441,57 @@ body {
     cursor: pointer;
     font-size: 12px;
     transition: all 0.2s ease;
-    flex: 1;
-    min-width: 0;
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-width: auto;
+}
+
+.preview-sidebar .preview-btn.close-btn {
+    background: var(--error-color);
+    color: white;
+    border-color: var(--error-color);
+    margin-left: 6px;
+}
+
+.preview-sidebar .preview-btn.close-btn:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+}
+
+.preview-sidebar .close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 16px;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.preview-sidebar .close-btn:hover {
+    background: var(--error-color);
+    color: white;
+    border-color: var(--error-color);
+}
+
+.preview-sidebar .editor-btn.close-btn {
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    margin-left: 6px;
+}
+
+.preview-sidebar .editor-btn.close-btn:hover {
+    background: var(--error-color);
+    color: white;
+    border-color: var(--error-color);
 }
 
 .preview-btn:hover {
@@ -1673,28 +1770,34 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 12px;
+    padding: 6px 8px;
     border-bottom: 1px solid var(--border-color);
     background: var(--bg-primary);
     flex-shrink: 0;
+    min-height: 40px;
 }
 
 .preview-sidebar .editor-actions {
     display: flex;
-    gap: 6px;
+    gap: 4px;
     flex-wrap: wrap;
+    align-items: center;
+    min-width: 0;
+    flex: 1;
 }
 
 .preview-sidebar .editor-btn {
-    padding: 6px 10px;
+    padding: 4px 8px;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     background: var(--bg-primary);
     color: var(--text-primary);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
     transition: all 0.2s ease;
     white-space: nowrap;
+    flex-shrink: 0;
+    min-width: 0;
 }
 
 .preview-sidebar .editor-btn:hover {
@@ -1725,7 +1828,13 @@ body {
 
 .preview-sidebar .editor-info {
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: 11px;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 150px;
 }
 
 /* AI编辑面板在侧边栏中的样式 */
