@@ -99,19 +99,22 @@ async def ai_editor(plain_text: List[str], request: str, project_name: str, sear
             rag_info_keywords=rag_info_keywords,
             rag_info_original=rag_info_original
         )
-        
-        result = f"""AI编辑器处理结果：
-原文本数量: {len(plain_text)}
-用户请求: {request}
-提取的关键词: {keywords}
-项目名称: {project_name}
 
-=== 优化后的文本 ===
+        result = f"""
 {optimized_text}
+"""        
+#         result = f"""AI编辑器处理结果：
+# 原文本数量: {len(plain_text)}
+# 用户请求: {request}
+# 提取的关键词: {keywords}
+# 项目名称: {project_name}
 
-=== 参考资料摘要 ===
-关键词搜索结果: {rag_info_keywords[:200]}...
-原始请求搜索结果: {rag_info_original[:200]}..."""
+# === 优化后的文本 ===
+# {optimized_text}
+
+# === 参考资料摘要 ===
+# 关键词搜索结果: {rag_info_keywords[:200]}...
+# 原始请求搜索结果: {rag_info_original[:200]}..."""
         
         return result
         
@@ -208,7 +211,7 @@ async def generate_optimized_text(
 【参考资料2 - 原始请求搜索结果】
 {rag_info_original[:1000]}
 
-请基于上述信息，生成优化后的文本段落："""
+请基于上述信息，生成优化后的文本段落，直接给结果，不要加问候语和任何解释。"""
         
         # 调用Qwen-long模型
         print(f"开始调用Qwen模型，用户提示词长度: {len(user_prompt)}")
