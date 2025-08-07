@@ -5,7 +5,7 @@ const fs = require('fs');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 // 🆕 环境配置 - ReactAgent后端地址
-const REACT_AGENT_URL = process.env.REACT_AGENT_URL || 'http://localhost:8000';
+const REACT_AGENT_URL = process.env.REACT_AGENT_URL || 'http://127.0.0.1:8000';
 
 console.log(`🔗 ReactAgent后端地址: ${REACT_AGENT_URL}`);
 
@@ -386,21 +386,49 @@ app.use('/api/stream', createProxyMiddleware({
     }
 }));
 
-// 🤖 AI编辑器API代理
-app.use('/api/ai-editor', createProxyMiddleware({
-    target: REACT_AGENT_URL,
-    changeOrigin: true,
-    onError: (err, req, res) => {
-        console.error('❌ AI编辑器代理错误:', err);
-        res.status(500).json({
-            success: false,
-            error: 'AI编辑器服务连接失败: ' + err.message
+// 🤖 AI编辑器API代理 - 使用手动转发方式
+app.use('/api/ai-editor', async (req, res) => {
+    try {
+        console.log('🤖 AI编辑器代理请求:', req.method, req.url, '-> 目标:', REACT_AGENT_URL);
+        
+        const targetUrl = `${REACT_AGENT_URL}/api/ai-editor${req.url}`;
+        const options = {
+            method: req.method,
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+        
+        if (req.method === 'POST' && req.body) {
+            const bodyString = JSON.stringify(req.body);
+            options.body = bodyString;
+            options.headers['Content-Length'] = Buffer.byteLength(bodyString, 'utf8');
+        }
+        
+        const response = await fetch(targetUrl, options);
+        const data = await response.json();
+        
+        console.log('✅ AI编辑器代理响应:', response.status, req.url);
+        
+        res.status(response.status).json(data);
+        
+    } catch (error) {
+        console.error('❌ AI编辑器代理错误:', error);
+        console.error('❌ 错误详情:', {
+            message: error.message,
+            target: REACT_AGENT_URL,
+            url: req.url,
+            method: req.method
         });
-    },
-    onProxyReq: (proxyReq, req, res) => {
-        console.log('🤖 AI编辑器代理请求:', req.method, req.url);
+        
+        if (!res.headersSent) {
+            res.status(500).json({
+                success: false,
+                error: 'AI编辑器服务连接失败: ' + error.message
+            });
+        }
     }
-}));
+});
 
 // 状态检查API - 直接转发到ReactAgent 服务器
 app.get('/api/status', async (req, res) => {

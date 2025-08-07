@@ -300,8 +300,8 @@ async function callAIEditorAPI(text, command) {
         
         console.log('📤 AI编辑请求数据:', requestData);
         
-        // 发送POST请求到后端API
-        const response = await fetch('http://localhost:8000/api/ai-editor/process', {
+        // 发送POST请求到前端代理API
+        const response = await fetch('/api/ai-editor/process', {
 
             method: 'POST',
             headers: {
