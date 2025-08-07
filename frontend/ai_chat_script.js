@@ -2529,7 +2529,7 @@ async function handleTaskCompletion(taskId, taskData, originalMessage) {
 
     if (message) {
         completionMessage += `📝 ${message}\n\n`;
-    }
+    } 
 
     if (Object.keys(minioUrls).length > 0) {
         completionMessage += '📥 **下载链接：**\n\n';
