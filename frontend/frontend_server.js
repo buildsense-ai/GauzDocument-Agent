@@ -762,8 +762,48 @@ app.get('/api/projects/:identifier/files', async (req, res) => {
     }
 });
 
-// 默认路由 - 项目选择页面（入口）
+// 🔐 登录API接口
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+    
+    console.log(`🔐 登录尝试: ${username}`);
+    
+    // 简单的前端验证 - 默认账号
+    if (username === 'admin' && password === 'Aa@123456') {
+        console.log('✅ 登录成功');
+        res.json({
+            success: true,
+            message: '登录成功',
+            user: {
+                username: username,
+                role: 'admin'
+            }
+        });
+    } else {
+        console.log('❌ 登录失败: 用户名或密码错误');
+        res.status(401).json({
+            success: false,
+            error: '用户名或密码错误'
+        });
+    }
+});
+
+// 🔐 登出API接口（预留）
+app.post('/api/logout', (req, res) => {
+    console.log('🔐 用户登出');
+    res.json({
+        success: true,
+        message: '登出成功'
+    });
+});
+
+// 默认路由 - 登录页面（入口）
 app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'login.html'));
+});
+
+// 项目选择页面路由
+app.get('/project_selector.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'project_selector.html'));
 });
 

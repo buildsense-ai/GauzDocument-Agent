@@ -681,6 +681,36 @@
             background: var(--bg-hover);
             color: var(--error-color);
         }
+
+        /* 用户信息样式 */
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .username {
+            color: var(--text-primary);
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .logout-btn {
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 12px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .logout-btn:hover {
+            background: var(--error-color);
+            color: var(--text-inverse);
+            border-color: var(--error-color);
+        }
     </style>
 </head>
 
@@ -690,7 +720,10 @@
             <div class="header-content">
                 <div class="logo">🏗️ 工程AI助手</div>
                 <div class="user-section">
-                    <div class="user-avatar">张</div>
+                    <div class="user-info">
+                        <span class="username" id="username">admin</span>
+                        <button class="logout-btn" onclick="logout()">登出</button>
+                    </div>
                     <button class="settings-btn" onclick="openSettings()">⚙️</button>
                 </div>
             </div>
@@ -1079,12 +1112,69 @@
             }
         });
 
+        // 🔐 登出功能
+        function logout() {
+            if (confirm('确定要登出吗？')) {
+                // 调用登出API
+                fetch('/api/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('登出成功:', data);
+                    // 清除本地存储的登录状态
+                    localStorage.removeItem('isLoggedIn');
+                    localStorage.removeItem('username');
+                    // 跳转到登录页面
+                    window.location.href = '/';
+                })
+                .catch(error => {
+                    console.error('登出失败:', error);
+                    // 即使API失败也清除本地状态并跳转
+                    localStorage.removeItem('isLoggedIn');
+                    localStorage.removeItem('username');
+                    window.location.href = '/';
+                });
+            }
+        }
+
+        // 🔐 检查登录状态
+        function checkLoginStatus() {
+            const isLoggedIn = localStorage.getItem('isLoggedIn');
+            const username = localStorage.getItem('username');
+            
+            if (!isLoggedIn || isLoggedIn !== 'true') {
+                // 未登录，跳转到登录页面
+                window.location.href = '/';
+                return;
+            }
+            
+            // 更新用户名显示
+            if (username) {
+                const usernameElement = document.getElementById('username');
+                if (usernameElement) {
+                    usernameElement.textContent = username;
+                }
+            }
+        }
+
+        // 页面加载时检查登录状态
+        document.addEventListener('DOMContentLoaded', function() {
+            checkLoginStatus();
+        });
+
         // 全局暴露函数供其他页面使用
         window.projectManager = {
             incrementFiles: incrementProjectFiles,
             incrementChats: incrementProjectChats,
             updateCounts: updateProjectCounts
         };
+        
+        // 暴露登出函数
+        window.logout = logout;
     </script>
 </body>
 
