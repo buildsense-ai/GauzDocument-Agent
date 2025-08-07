@@ -88,7 +88,7 @@
 
 #### 1.5.1 AI文本编辑处理
 - **接口**: `POST /api/ai-editor/process`
-- **完整URL**: `http://localhost:8001/api/ai-editor/process`
+- **完整URL**: `http://localhost:8000/api/ai-editor/process`
 - **用途**: 处理AI文本编辑请求
 - **调用位置**: `ai_editor.js` 第212行
 - **调用方式**: 直接调用后端API (不通过前端代理)
@@ -139,11 +139,11 @@
 ### 3.1 代理配置
 
 #### 3.1.1 流式API代理
-- **代理路径**: `/api/stream/*` → `http://localhost:8001/stream/*`
+- **代理路径**: `/api/stream/*` → `http://localhost:8000/stream/*`
 - **用途**: 代理所有流式API请求
 
 #### 3.1.2 AI编辑器代理
-- **代理路径**: `/api/ai-editor/*` → `http://localhost:8001/api/ai-editor/*`
+- **代理路径**: `/api/ai-editor/*` → `http://localhost:8000/api/ai-editor/*`
 - **用途**: 代理AI编辑器相关请求
 
 ### 3.2 直接处理的API
@@ -175,12 +175,12 @@
 
 #### 4.1.1 通过前端代理调用 (推荐)
 - **路径格式**: `/api/*`
-- **实际访问**: `http://localhost:3003/api/*` → `http://localhost:8001/api/*`
+- **实际访问**: `http://localhost:3003/api/*` → `http://localhost:8000/api/*`
 - **优势**: 统一管理、错误处理、请求头自动添加
 - **适用**: 大部分API接口
 
 #### 4.1.2 直接调用后端API
-- **路径格式**: `http://localhost:8001/api/*`
+- **路径格式**: `http://localhost:8000/api/*`
 - **用途**: 特殊需求或独立功能
 - **示例**: AI编辑器API
 - **注意**: 需要手动处理跨域、错误处理等
@@ -212,7 +212,7 @@ headers: {
 ## 6. 数据流向
 
 ```
-浏览器 → 前端服务器(3003) → 后端API服务器(8001)
+浏览器 → 前端服务器(3003) → 后端API服务器(8000)
        ↑                    ↑
    静态文件服务          API代理/处理
 ```
