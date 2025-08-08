@@ -43,7 +43,7 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 # 🆕 导入路由模块
-from routers import ai_editor
+from routers import ai_editor, upload_with_version
 
 # 全局会话管理
 active_sessions: Dict[str, Dict[str, Any]] = {}
@@ -123,6 +123,7 @@ app.add_middleware(
 
 # 🆕 注册路由
 app.include_router(ai_editor.router)
+app.include_router(upload_with_version.router)
 
 # 全局变量
 deepseek_client = None
