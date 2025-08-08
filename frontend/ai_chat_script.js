@@ -512,6 +512,10 @@ function switchTab(tabName) {
     // 显示对应内容
     if (tabName === 'files') {
         document.getElementById('filesTab').classList.add('active');
+    } else if (tabName === 'generated') {
+        document.getElementById('generatedTab').classList.add('active');
+        // 加载生成的文件列表
+        loadGeneratedFiles();
     } else if (tabName === 'history') {
         document.getElementById('historyTab').classList.add('active');
     }
@@ -1835,9 +1839,8 @@ async function loadChatHistory() {
                             const finalDocUrl = msg.extra_data.minio_urls.final_document;
 
                             if (finalDocUrl) {
-                                // 从URL提取文件名
-                                const urlParts = finalDocUrl.split('/');
-                                const fileName = urlParts[urlParts.length - 1] || '完整版文档';
+                                // 从URL提取文件名并解码中文字符
+                                const fileName = extractDocumentName(finalDocUrl) || '完整版文档';
 
                                 window.taskDocuments[taskId] = {
                                     url: finalDocUrl,
@@ -2605,13 +2608,9 @@ function extractDocumentName(url) {
         // 解码URL编码的中文字符
         const decoded = decodeURIComponent(nameWithoutQuery);
 
-        // 提取有意义的部分
-        if (decoded.includes('完整版文档')) {
-            return '完整版文档';
-        } else if (decoded.includes('final_document')) {
-            return '最终文档';
-        } else if (decoded.includes('.md')) {
-            return decoded.replace(/.*_/, '').replace('.md', '') || '文档';
+        // 直接返回解码后的完整文件名，去掉扩展名111111
+        if (decoded.endsWith('.md')) {
+            return decoded.replace('.md', '');
         }
 
         return decoded;
@@ -3918,7 +3917,130 @@ function switchToProject(projectId, projectName, projectType) {
 // 导出项目切换函数到全局作用域
 window.switchToProject = switchToProject;
 
-// 🧪 调试用：测试任务轮询功能
+// 🆕 加载生成的文件列表
+function loadGeneratedFiles() {
+    console.log('📁 加载生成的文件列表...');
+    
+    const generatedTab = document.getElementById('generatedTab');
+    if (!generatedTab) {
+        console.error('❌ 未找到 generatedTab 元素');
+        return;
+    }
+    
+    // 检查是否有生成的文件
+    if (!window.taskDocuments || Object.keys(window.taskDocuments).length === 0) {
+        generatedTab.innerHTML = `
+            <div class="no-files-message">
+                <p>📄 暂无生成的文档</p>
+                <p class="text-muted">AI 生成的文档将在此显示</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // 构建文件列表HTML
+    let filesHtml = '<div class="generated-files-list">';
+    
+    Object.entries(window.taskDocuments).forEach(([taskId, docInfo]) => {
+        const fileName = docInfo.name || '未知文档';
+        const fileUrl = docInfo.url;
+        
+        filesHtml += `
+            <div class="generated-file-item">
+                <div class="file-info">
+                    <div class="file-icon">📄</div>
+                    <div class="file-details">
+                        <div class="file-name">${fileName}</div>
+                    </div>
+                </div>
+                <div class="file-actions">
+                    <button class="btn-small" onclick="previewMarkdownDocument('${taskId}')" title="预览文档">
+                        👁️ 预览
+                    </button>
+                    <button class="btn-small" onclick="window.open('${fileUrl}', '_blank')" title="下载文档">
+                        📥 下载
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+    
+    filesHtml += '</div>';
+    
+    // 添加样式
+    const styleHtml = `
+        <style>
+            .generated-files-list {
+                padding: 10px;
+            }
+            .generated-file-item {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 12px;
+                margin-bottom: 8px;
+                background: var(--bg-secondary);
+                border-radius: 8px;
+                border: 1px solid var(--border-color);
+            }
+            .file-info {
+                display: flex;
+                align-items: center;
+                flex: 1;
+            }
+            .file-icon {
+                font-size: 24px;
+                margin-right: 12px;
+            }
+            .file-details {
+                flex: 1;
+            }
+            .file-name {
+                font-weight: 500;
+                margin-bottom: 4px;
+            }
+            .file-meta {
+                font-size: 12px;
+                color: var(--text-secondary);
+            }
+            .file-actions {
+                display: flex;
+                gap: 8px;
+            }
+            .btn-small {
+                padding: 4px 8px;
+                font-size: 12px;
+                border: 1px solid var(--border-color);
+                background: var(--bg-primary);
+                color: var(--text-primary);
+                border-radius: 4px;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            .btn-small:hover {
+                background: var(--bg-hover);
+            }
+            .no-files-message {
+                text-align: center;
+                padding: 40px 20px;
+                color: var(--text-secondary);
+            }
+            .text-muted {
+                font-size: 14px;
+                margin-top: 8px;
+            }
+        </style>
+    `;
+    
+    generatedTab.innerHTML = styleHtml + filesHtml;
+    
+    console.log(`✅ 已加载 ${Object.keys(window.taskDocuments).length} 个生成的文档`);
+}
+
+// 导出函数
+window.loadGeneratedFiles = loadGeneratedFiles;
+
+// 🧪 调试功能
 window.debugTaskPolling = function (testTaskId = 'test_' + Date.now()) {
     console.log(`🧪 开始测试任务轮询功能，任务ID: ${testTaskId}`);
 

@@ -79,7 +79,10 @@
 
             <div class="sidebar-tabs">
                 <button class="sidebar-tab active" onclick="switchTab('files')">
-                    <span>📁 文件</span>
+                    <span>📁 上传文件</span>
+                </button>
+                <button class="sidebar-tab" onclick="switchTab('generated')">
+                    <span>📄 生成文件</span>
                 </button>
                 <button class="sidebar-tab" onclick="switchTab('history')">
                     <span>💬 对话</span>
@@ -90,6 +93,19 @@
                 <div class="file-tree" id="fileTree">
                     <div style="color: var(--text-tertiary); font-size: 12px; text-align: center; padding: 20px;">
                         通过对话框📎按钮上传文件后，文件将在此显示
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-content" id="generatedTab">
+                <div class="generated-files">
+                    <div class="generated-files-title">
+                        <span>📄 生成的文件</span>
+                    </div>
+                    <div class="generated-files-list" id="generatedFilesList">
+                        <div style="color: var(--text-tertiary); font-size: 12px; text-align: center; padding: 20px;">
+                            AI生成的文档将在此显示
+                        </div>
                     </div>
                 </div>
             </div>
