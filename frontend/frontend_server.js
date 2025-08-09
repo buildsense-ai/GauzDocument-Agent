@@ -111,7 +111,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
         console.log(`🌐 转发文件上传到后端MinIO API...`);
 
         // 使用axios转发到后端MinIO API
-        const backendResponse = await axios.post('http://localhost:8000/api/upload', formData, {
+        const backendResponse = await axios.post('http://127.0.0.1:8000/api/upload', formData, {
             headers: {
                 // 转发项目信息到后端
                 ...(projectId && { 'X-Project-ID': projectId }),
@@ -239,7 +239,7 @@ app.post('/api/chat', async (req, res) => {
         console.log('发送到ReactAgent:', requestData);
 
         // 直接调用ReactAgent后端的/react_solve端点，并转发项目信息
-        const response = await fetch('http://localhost:8000/react_solve', {
+        const response = await fetch('http://127.0.0.1:8000/react_solve', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -325,7 +325,7 @@ app.post('/api/start_stream', async (req, res) => {
         console.log('🌊 转发流式请求到ReactAgent:', requestData);
 
         // 直接调用ReactAgent后端的/start_stream端点，并转发项目信息
-        const response = await fetch('http://localhost:8000/start_stream', {
+        const response = await fetch('http://127.0.0.1:8000/start_stream', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -433,7 +433,7 @@ app.use('/api/ai-editor', async (req, res) => {
 // 状态检查API - 直接转发到ReactAgent 服务器
 app.get('/api/status', async (req, res) => {
     try {
-        const response = await fetch('http://localhost:8000/health');
+        const response = await fetch('http://127.0.0.1:8000/health');
 
         if (!response.ok) {
             throw new Error(`ReactAgent服务器不可用: ${response.status}`);
@@ -530,7 +530,7 @@ app.get('/api/tasks/:task_id', async (req, res) => {
 // 工具列表API
 app.get('/api/tools', async (req, res) => {
     try {
-        const response = await fetch('http://localhost:8000/tools');
+        const response = await fetch('http://127.0.0.1:8000/tools');
 
         if (!response.ok) {
             throw new Error(`获取工具列表失败: ${response.status}`);
@@ -554,7 +554,7 @@ app.get('/api/tools', async (req, res) => {
 app.get('/api/projects', async (req, res) => {
     try {
         console.log('📋 代理项目列表请求');
-        const response = await fetch('http://localhost:8000/api/projects');
+        const response = await fetch('http://127.0.0.1:8000/api/projects');
 
 
         if (!response.ok) {
@@ -576,7 +576,7 @@ app.get('/api/projects', async (req, res) => {
 app.post('/api/projects', async (req, res) => {
     try {
         console.log('📋 代理创建项目请求:', req.body);
-        const response = await fetch('http://localhost:8000/api/projects', {
+        const response = await fetch('http://127.0.0.1:8000/api/projects', {
 
             method: 'POST',
             headers: {
@@ -608,7 +608,7 @@ app.get('/api/projects/:identifier/summary', async (req, res) => {
         const { by_name } = req.query;
         console.log(`📋 代理项目概要请求: ${identifier} (by_name: ${by_name})`);
 
-        const url = `http://localhost:8000/api/projects/${encodeURIComponent(identifier)}/summary?by_name=${by_name || 'false'}`;
+        const url = `http://127.0.0.1:8000/api/projects/${encodeURIComponent(identifier)}/summary?by_name=${by_name || 'false'}`;
 
         const response = await fetch(url);
 
@@ -633,7 +633,7 @@ app.get('/api/projects/:identifier/current-session', async (req, res) => {
         const { by_name, limit } = req.query;
         console.log(`📋 代理当前会话请求: ${identifier} (by_name: ${by_name})`);
 
-        const url = `http://localhost:8000/api/projects/${encodeURIComponent(identifier)}/current-session?by_name=${by_name || 'false'}&limit=${limit || '20'}`;
+        const url = `http://127.0.0.1:8000/api/projects/${encodeURIComponent(identifier)}/current-session?by_name=${by_name || 'false'}&limit=${limit || '20'}`;
 
         const response = await fetch(url);
 
@@ -662,8 +662,8 @@ app.post('/api/projects/:identifier/messages', async (req, res) => {
 
         // 构建后端API URL - 使用适当的项目标识符
         const baseUrl = by_name ?
-            `http://localhost:8000/api/projects/by-name/${encodeURIComponent(identifier)}/messages` :
-            `http://localhost:8000/api/projects/${encodeURIComponent(identifier)}/messages`;
+            `http://127.0.0.1:8000/api/projects/by-name/${encodeURIComponent(identifier)}/messages` :
+            `http://127.0.0.1:8000/api/projects/${encodeURIComponent(identifier)}/messages`;
 
         const response = await fetch(baseUrl, {
             method: 'POST',
@@ -708,7 +708,7 @@ app.delete('/api/projects/:identifier', async (req, res) => {
         const { by_name } = req.query;
         console.log(`🗑️ 代理删除项目请求: ${identifier} (by_name: ${by_name})`);
 
-        const url = `http://localhost:8000/api/projects/${encodeURIComponent(identifier)}?by_name=${by_name || 'false'}`;
+        const url = `http://127.0.0.1:8000/api/projects/${encodeURIComponent(identifier)}?by_name=${by_name || 'false'}`;
 
         const response = await fetch(url, {
             method: 'DELETE'
@@ -737,7 +737,7 @@ app.get('/api/projects/:identifier/files', async (req, res) => {
         const { identifier } = req.params;
         const { by_name } = req.query;
 
-        const url = `http://localhost:8000/api/projects/${encodeURIComponent(identifier)}/files?by_name=${by_name || 'false'}`;
+        const url = `http://127.0.0.1:8000/api/projects/${encodeURIComponent(identifier)}/files?by_name=${by_name || 'false'}`;
 
         console.log(`🔗 代理文件列表请求到后端: ${url}`);
 
