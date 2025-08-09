@@ -2608,11 +2608,7 @@ function extractDocumentName(url) {
         // 解码URL编码的中文字符
         const decoded = decodeURIComponent(nameWithoutQuery);
 
-        // 直接返回解码后的完整文件名，去掉扩展名111111
-        if (decoded.endsWith('.md')) {
-            return decoded.replace('.md', '');
-        }
-
+        // 返回解码后的完整文件名，保留扩展名
         return decoded;
     } catch (error) {
         console.warn('提取文档名称失败:', error);
@@ -3150,6 +3146,10 @@ async function previewMarkdownDocument(taskId) {
 
     const docInfo = window.taskDocuments[taskId];
     currentPreviewTaskId = taskId;
+    
+    // 设置当前文档名称，供其他模块（如版本历史）使用
+    window.currentEditingName = docInfo.name;
+    console.log('📝 设置当前预览文档名称:', docInfo.name);
 
     // 显示预览窗口
     openMarkdownPreview(docInfo.name);
@@ -3182,6 +3182,9 @@ function closeMarkdownPreview() {
     container.classList.remove('preview-mode');
 
     currentPreviewTaskId = null;
+    // 清空当前文档名称
+    window.currentEditingName = '';
+    console.log('🧹 清空当前文档名称');
     console.log('📖 预览模式已关闭 - 恢复正常布局');
 }
 
@@ -4105,6 +4108,8 @@ console.log('   - debugPollingStatus() - 查看轮询状态');
 let currentEditingContent = '';
 let currentEditingUrl = '';
 let currentEditingName = '';
+// 确保window对象上也有这个变量，供其他模块使用
+window.currentEditingName = '';
 
 // 切换到编辑模式（在侧边栏中）
 function switchToEditMode() {
@@ -4119,6 +4124,8 @@ function switchToEditMode() {
     const docInfo = window.taskDocuments[currentPreviewTaskId];
     currentEditingUrl = docInfo.url;
     currentEditingName = docInfo.name;
+    // 确保window.currentEditingName也被设置，供其他模块使用
+    window.currentEditingName = docInfo.name;
     
     // 更新侧边栏标题和图标
     document.getElementById('sidebarTitleIcon').textContent = '✏️';
@@ -4447,6 +4454,7 @@ function closeDocumentEditor() {
     currentEditingContent = '';
     currentEditingUrl = '';
     currentEditingName = '';
+    window.currentEditingName = '';
     
     console.log('📝 文档编辑器已关闭');
 }

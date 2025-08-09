@@ -195,11 +195,14 @@
                         <button class="preview-btn" onclick="downloadEditedContent()">
                             <span>💾</span> 下载修改版
                         </button>
+                        <button class="preview-btn" onclick="replaceToolbarButtons()">
+                            <span>🕡</span> 
+                        </button>
                         <button class="preview-btn" onclick="refreshPreview()">
-                            <span>🔄</span> 刷新预览
+                            <span>🔄</span> 
                         </button>
                         <button class="preview-btn edit-btn" onclick="switchToEditMode()">
-                                <span>✏️</span> 编辑文档
+                                <span>✏️</span> 
                             </button>
                             <button class="preview-btn close-btn" onclick="closeMarkdownPreview()" title="关闭文档">
                                 <span>×</span>
@@ -226,7 +229,7 @@
                         <span>💾</span> 下载
                     </button>
                     <button class="editor-btn" onclick="switchToPreviewMode()">
-                        <span>👁️</span> 预览模式
+                        <span>⬅️</span> 
                     </button>
                     <button class="editor-btn primary" onclick="saveEditedDocument()">
                         <span>✅</span> 保存修改
@@ -432,6 +435,7 @@
     <!-- AI编辑器模态窗口已被删除 -->
 
     <script src="libs/diff_match_patch.js"></script>
+    <script src="libs/filehistory.js"></script>
     <script src="ai_selectorJS/ai_editor.js"></script>
     <script src="ai_chat_script.js"></script>
 </body>
