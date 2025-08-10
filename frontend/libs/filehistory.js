@@ -25,10 +25,10 @@ function replaceToolbarButtons() {
     setTimeout(() => {
         // 创建新的按钮HTML
         const newButtonsHTML = `
-            <button class="preview-btn" onclick="goBack()">
+            <button class="preview-btn" name="上一版本" onclick="goBack()">
                 <span>⬅️</span> 
             </button>
-            <button class="preview-btn" onclick="goForward()">
+            <button class="preview-btn" name="下一版本" onclick="goForward()">
                 <span>➡️</span> 
             </button>
             <button class="preview-btn" onclick="uploadFile()">
@@ -52,8 +52,8 @@ function replaceToolbarButtons() {
                             <div class="timeline-markers" id="timelineMarkers"></div>
                             <input type="range" id="versionSlider" class="timeline-slider" min="0" max="0" value="0" step="1">
                             <div class="timeline-labels">
-                                <span class="timeline-label-start">最早</span>
-                                <span class="timeline-label-end">最新</span>
+                                <span class="timeline-label-end">new</span>
+                                <span class="timeline-label-start">old</span>
                             </div>
                         </div>
                         <div class="version-info">
@@ -351,6 +351,217 @@ function restoreOriginalButtons() {
     }, 300); // 等待淡出动画完成
 }
 
+// 上一版本
+async function goBack() {
+    if (currentVersionIndex < 0 || versionHistory.length === 0) {
+        showNotification('正在加载版本历史...', 'info');
+        await loadVersionHistory();
+        if (versionHistory.length === 0) {
+            return;
+        }
+    }
+    
+    if (currentVersionIndex < versionHistory.length - 1) {
+        currentVersionIndex++;
+        updateVersionInfo();
+        updateMarkerHighlight();
+        const slider = document.getElementById('versionSlider');
+        if (slider) {
+            slider.value = currentVersionIndex;
+        }
+        
+        // 加载并显示该版本的内容到编辑器
+        await loadVersionContentToEditor();
+        
+        // 保存当前浏览的版本到浏览器存储
+        saveCurrentBrowsingVersion();
+        
+        showNotification('已切换到上一版本', 'info');
+    } else {
+        showNotification('已经是最早版本', 'warning');
+    }
+}
+
+// 下一版本
+async function goForward() {
+    if (currentVersionIndex < 0 || versionHistory.length === 0) {
+        showNotification('正在加载版本历史...', 'info');
+        await loadVersionHistory();
+        if (versionHistory.length === 0) {
+            return;
+        }
+    }
+    
+    if (currentVersionIndex > 0) {
+        currentVersionIndex--;
+        updateVersionInfo();
+        updateMarkerHighlight();
+        const slider = document.getElementById('versionSlider');
+        if (slider) {
+            slider.value = currentVersionIndex;
+        }
+        
+        // 加载并显示该版本的内容到编辑器
+        await loadVersionContentToEditor();
+        
+        // 保存当前浏览的版本到浏览器存储
+        saveCurrentBrowsingVersion();
+        
+        showNotification('已切换到下一版本', 'info');
+    } else {
+        showNotification('已经是最新版本', 'warning');
+    }
+}
+
+// 下载当前浏览版本的文件到桌面
+function downloadFile() {
+    // 获取当前浏览的版本ID（从浏览器存储中获取）
+    const currentBrowsingVersionId = getCurrentBrowsingVersion();
+    
+    if (!currentBrowsingVersionId) {
+        showNotification('请先选择一个版本进行浏览', 'warning');
+        return;
+    }
+    
+    const fileName = getCurrentFileName();
+    const versionIdShort = currentBrowsingVersionId.substring(0, 8);
+    
+    try {
+        showNotification(`正在下载当前浏览版本 ${versionIdShort}...`, 'info');
+        
+        // 构建下载URL
+        const downloadUrl = `http://localhost:8000/api/get_fileBinby_version?filename=${encodeURIComponent(fileName)}&version_id=${encodeURIComponent(currentBrowsingVersionId)}`;
+        
+        // 创建隐藏的下载链接
+        const downloadLink = document.createElement('a');
+        downloadLink.href = downloadUrl;
+        downloadLink.style.display = 'none';
+        
+        // 添加到页面并触发下载
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        
+        // 清理
+        setTimeout(() => {
+            document.body.removeChild(downloadLink);
+        }, 100);
+        
+        showNotification(`版本 ${versionIdShort}... 下载已开始`, 'success');
+        
+    } catch (error) {
+        console.error('Error downloading file:', error);
+        showNotification('下载文件失败: ' + error.message, 'error');
+    }
+}
+
+// 加载版本内容到编辑器
+async function loadVersionContentToEditor() {
+    if (currentVersionIndex < 0 || currentVersionIndex >= versionHistory.length) {
+        return;
+    }
+    
+    const version = versionHistory[currentVersionIndex];
+    const fileName = getCurrentFileName();
+    const versionId = version.versionId || version.version_id || version.id;
+    
+    if (!versionId) {
+        showNotification('无法获取版本ID', 'error');
+        return;
+    }
+    
+    try {
+        // 使用后端API获取文件内容
+        const response = await fetch(`http://localhost:8000/api/get_fileBinby_version?filename=${encodeURIComponent(fileName)}&version_id=${encodeURIComponent(versionId)}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        // 获取文件内容
+        const content = await response.text();
+        
+        // 渲染内容到预览区域
+        const previewResult = document.getElementById('previewResult');
+        const previewLoading = document.getElementById('previewLoading');
+        const previewError = document.getElementById('previewError');
+        
+        if (previewResult) {
+            // 隐藏加载和错误状态
+            if (previewLoading) previewLoading.style.display = 'none';
+            if (previewError) previewError.style.display = 'none';
+            
+            // 渲染Markdown内容
+            let htmlContent;
+            if (typeof marked !== 'undefined' && !window.markedLoadFailed) {
+                try {
+                    // 配置marked选项
+                    if (marked.setOptions) {
+                        marked.setOptions({
+                            breaks: true,
+                            gfm: true,
+                            headerIds: false,
+                            mangle: false
+                        });
+                    }
+                    
+                    // 根据marked版本使用不同的API
+                    if (typeof marked.parse === 'function') {
+                        htmlContent = marked.parse(content);
+                    } else if (typeof marked === 'function') {
+                        htmlContent = marked(content);
+                    } else {
+                        throw new Error('无法识别的marked.js API');
+                    }
+                } catch (markedError) {
+                    console.warn('⚠️ marked.js渲染失败，使用备用方法:', markedError);
+                    htmlContent = content.replace(/\n/g, '<br>');
+                }
+            } else {
+                // 备用渲染：简单的换行处理
+                htmlContent = content.replace(/\n/g, '<br>');
+            }
+            
+            // 显示渲染结果
+            previewResult.innerHTML = htmlContent;
+            previewResult.style.display = 'block';
+            
+            // 更新预览状态
+            const previewStatus = document.getElementById('previewStatus');
+            if (previewStatus) {
+                previewStatus.textContent = '版本内容已加载';
+            }
+        }
+        
+    } catch (error) {
+        console.error('Error loading version content:', error);
+        showNotification('加载版本内容失败: ' + error.message, 'error');
+    }
+}
+
+// 保存当前浏览的版本到浏览器存储
+function saveCurrentBrowsingVersion() {
+    if (currentVersionIndex >= 0 && currentVersionIndex < versionHistory.length) {
+        const version = versionHistory[currentVersionIndex];
+        const versionId = version.versionId || version.version_id || version.id;
+        const fileName = getCurrentFileName();
+        
+        if (versionId && fileName) {
+            const storageKey = `browsing_version_${fileName}`;
+            localStorage.setItem(storageKey, versionId);
+            console.log(`已保存当前浏览版本: ${versionId.substring(0, 8)}...`);
+        }
+    }
+}
+
+// 获取当前浏览的版本ID
+function getCurrentBrowsingVersion() {
+    const fileName = getCurrentFileName();
+    if (!fileName) return null;
+    
+    const storageKey = `browsing_version_${fileName}`;
+    return localStorage.getItem(storageKey);
+}
+
 // 上传文件到版本控制系统
 function uploadFile() {
     // 获取当前编辑的文档名称
@@ -590,35 +801,72 @@ async function previewVersion() {
     try {
         showNotification(`正在预览版本 ${versionIdShort}...`, 'info');
         
-        // 这里需要根据实际的API来获取特定版本的内容
-        const response = await fetch(`http://localhost:8000/api/getfile_content?filename=${encodeURIComponent(getCurrentFileName())}&versionId=${version.versionId || version.version_id || version.id}`);
+        // 获取特定版本的内容
+        const response = await fetch(`http://localhost:8000/api/get_fileBinby_version?filename=${encodeURIComponent(getCurrentFileName())}&version_id=${version.versionId || version.version_id || version.id}`);
         if (!response.ok) {
             throw new Error('Failed to load version content');
         }
         const content = await response.text();
         
-        // 在编辑器中显示预览内容（只读模式）
-        const editor = document.getElementById('markdownEditor');
-        if (editor) {
-            const originalContent = editor.value;
-            editor.value = content;
-            editor.style.backgroundColor = '#f5f5f5';
-            editor.readOnly = true;
+        // 渲染Markdown内容到预览区域
+        const previewResult = document.getElementById('previewResult');
+        const previewLoading = document.getElementById('previewLoading');
+        const previewError = document.getElementById('previewError');
+        
+        if (previewResult) {
+            // 隐藏加载和错误状态
+            if (previewLoading) previewLoading.style.display = 'none';
+            if (previewError) previewError.style.display = 'none';
             
-            showNotification(`正在预览版本 ${versionIdShort}... (3秒后恢复)`, 'info');
+            // 渲染Markdown内容
+            let htmlContent;
+            if (typeof marked !== 'undefined' && !window.markedLoadFailed) {
+                try {
+                    // 配置marked选项
+                    if (marked.setOptions) {
+                        marked.setOptions({
+                            breaks: true,
+                            gfm: true,
+                            headerIds: false,
+                            mangle: false
+                        });
+                    }
+                    
+                    // 根据marked版本使用不同的API
+                    if (typeof marked.parse === 'function') {
+                        htmlContent = marked.parse(content);
+                    } else if (typeof marked === 'function') {
+                        htmlContent = marked(content);
+                    } else {
+                        throw new Error('无法识别的marked.js API');
+                    }
+                } catch (markedError) {
+                    console.warn('⚠️ marked.js渲染失败，使用备用方法:', markedError);
+                    htmlContent = content.replace(/\n/g, '<br>');
+                }
+            } else {
+                // 备用渲染：简单的换行处理
+                htmlContent = content.replace(/\n/g, '<br>');
+            }
             
-            // 3秒后恢复原内容
-            setTimeout(() => {
-                editor.value = originalContent;
-                editor.style.backgroundColor = '';
-                editor.readOnly = false;
-                showNotification('预览结束', 'info');
-            }, 3000);
+            // 显示渲染结果
+            previewResult.innerHTML =  htmlContent;
+            previewResult.style.display = 'block';
+            
+            showNotification(`版本 ${versionIdShort} 预览完成`, 'success');
         }
         
     } catch (error) {
         console.error('Error previewing version:', error);
         showNotification('预览版本失败: ' + error.message, 'error');
+        
+        // 显示错误状态
+        const previewError = document.getElementById('previewError');
+        const previewErrorMsg = document.getElementById('previewErrorMsg');
+        if (previewError && previewErrorMsg) {
+            previewErrorMsg.textContent = error.message;
+            previewError.style.display = 'flex';
+        }
     }
 }
 
@@ -640,7 +888,7 @@ async function restoreVersion() {
         showNotification(`正在恢复到版本 ${versionIdShort}...`, 'info');
         
         // 获取特定版本的内容
-        const response = await fetch(`http://localhost:8000/api/getfile_content?filename=${encodeURIComponent(getCurrentFileName())}&versionId=${version.versionId || version.version_id || version.id}`);
+        const response = await fetch(`http://localhost:8000/api/get_fileBinby_version?filename=${encodeURIComponent(getCurrentFileName())}&version_id=${version.versionId || version.version_id || version.id}`);
         if (!response.ok) {
             throw new Error('Failed to load version content');
         }

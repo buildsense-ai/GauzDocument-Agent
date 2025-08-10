@@ -1695,6 +1695,23 @@ body {
     font-size: 14px;
 }
 
+/* 版本预览头部样式 */
+.version-preview-header {
+    display: none;
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: var(--text-inverse);
+    padding: 12px 16px;
+    margin: -16px -16px 16px -16px;
+    border-radius: 8px 8px 0 0;
+    font-weight: 600;
+    font-size: 16px;
+    text-align: center;
+    box-shadow: var(--shadow-sm);
+    position: sticky;
+    top: -16px;
+    z-index: 10;
+}
+
 /* 侧边栏编辑模式样式 */
 .preview-sidebar .editor-content {
     flex: 1;

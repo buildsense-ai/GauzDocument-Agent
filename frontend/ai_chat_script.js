@@ -3156,6 +3156,18 @@ async function previewMarkdownDocument(taskId) {
 
     // 开始获取和渲染文档
     await fetchAndRenderMarkdown(docInfo.url, docInfo.name);
+    
+    // 🆕 自动加载版本历史
+    if (typeof loadVersionHistory === 'function') {
+        console.log('📚 自动加载版本历史');
+        try {
+            await loadVersionHistory();
+        } catch (error) {
+            console.warn('⚠️ 自动加载版本历史失败:', error);
+        }
+    } else {
+        console.warn('⚠️ loadVersionHistory函数不可用');
+    }
 }
 
 function openMarkdownPreview(docTitle) {
@@ -3192,7 +3204,6 @@ function showPreviewLoading() {
     document.getElementById('previewLoading').style.display = 'flex';
     document.getElementById('previewError').style.display = 'none';
     document.getElementById('previewResult').style.display = 'none';
-    document.getElementById('previewStatus').textContent = '正在获取文档...';
 }
 
 function showPreviewError(errorMsg) {
@@ -3957,10 +3968,10 @@ function loadGeneratedFiles() {
                     </div>
                 </div>
                 <div class="file-actions">
-                    <button class="btn-small" onclick="previewMarkdownDocument('${taskId}')" title="预览文档">
+                    <button class="btn-small" onclick="previewGeneratedDocument('${fileName}')" title="预览最新版本">
                         👁️ 预览
                     </button>
-                    <button class="btn-small" onclick="window.open('${fileUrl}', '_blank')" title="下载文档">
+                    <button class="btn-small" onclick="downloadLatestVersion('${fileName}')" title="下载最新版本">
                         📥 下载
                     </button>
                 </div>
@@ -4137,7 +4148,12 @@ function switchToEditMode() {
     document.getElementById('editorToolbar').style.display = 'flex';
     document.getElementById('editorContent').style.display = 'flex';
     
-    // 如果有已编辑的内容，直接使用，否则加载原始文档
+    // 检查当前预览内容
+    const previewResult = document.getElementById('previewResult');
+    const hasVersionPreview = previewResult && previewResult.innerHTML.includes('version-preview-header');
+    const hasPreviewContent = previewResult && previewResult.innerHTML.trim() && !hasVersionPreview;
+    
+    // 如果有已编辑的内容，直接使用
     if (currentEditingContent && currentEditingContent.trim()) {
         console.log('🔄 恢复已编辑的内容');
         const editor = document.getElementById('markdownEditor');
@@ -4145,8 +4161,19 @@ function switchToEditMode() {
         document.getElementById('editorStatus').textContent = '已恢复编辑内容';
         updateEditorStats();
         setupSidebarEditorEventListeners();
+    } else if (hasPreviewContent) {
+        // 如果预览区域有非版本预览的内容，尝试从中提取Markdown
+        console.log('📋 从预览内容恢复编辑内容');
+        const editor = document.getElementById('markdownEditor');
+        // 简单的HTML到Markdown转换（基础版本）
+        let markdownContent = previewResult.textContent || previewResult.innerText || '';
+        editor.value = markdownContent;
+        currentEditingContent = markdownContent;
+        document.getElementById('editorStatus').textContent = '已从预览内容恢复';
+        updateEditorStats();
+        setupSidebarEditorEventListeners();
     } else {
-        console.log('📥 加载原始文档内容');
+        console.log('📥 尝试加载原始文档内容');
         document.getElementById('editorStatus').textContent = '正在加载文档内容...';
         loadDocumentForEditingInSidebar();
     }
@@ -4176,8 +4203,18 @@ function switchToPreviewMode() {
     document.getElementById('previewToolbar').style.display = 'flex';
     document.getElementById('previewContent').style.display = 'flex';
     
-    // 如果有编辑的内容，更新预览
-    if (editor && editor.value) {
+    // 检查是否有版本预览内容
+    const previewResult = document.getElementById('previewResult');
+    const hasVersionPreview = previewResult && previewResult.innerHTML.includes('version-preview-header');
+    
+    if (hasVersionPreview) {
+        // 如果有版本预览内容，保持显示
+        console.log('🔄 保持版本预览内容显示');
+        previewResult.style.display = 'block';
+        document.getElementById('previewLoading').style.display = 'none';
+        document.getElementById('previewError').style.display = 'none';
+    } else if (editor && editor.value) {
+        // 如果没有版本预览但有编辑内容，更新预览
         updatePreviewFromEditor();
     }
     
@@ -4231,8 +4268,29 @@ async function loadDocumentForEditingInSidebar() {
         
     } catch (error) {
         console.error('❌ 加载文档内容失败:', error);
-        document.getElementById('editorStatus').textContent = `加载失败: ${error.message}`;
-        showNotification('文档内容加载失败', 'error');
+        
+        // 根据错误类型提供不同的处理
+        if (error.message.includes('403')) {
+            // 403错误通常表示文档是生成的版本，无法直接访问原始文件
+            console.log('📝 检测到403错误，可能是生成的文档版本，允许用户直接编辑');
+            document.getElementById('editorStatus').textContent = '无法加载原始文档，可直接开始编辑新内容';
+            
+            // 设置一个空的编辑器，让用户可以开始编辑
+            const editor = document.getElementById('markdownEditor');
+            if (!editor.value || !editor.value.trim()) {
+                editor.value = '# 新文档\n\n开始编辑您的内容...';
+                currentEditingContent = editor.value;
+            }
+            
+            updateEditorStats();
+            setupSidebarEditorEventListeners();
+            
+            showNotification('原始文档无法访问，已为您创建新的编辑环境', 'info');
+        } else {
+            // 其他错误
+            document.getElementById('editorStatus').textContent = `加载失败: ${error.message}`;
+            showNotification('文档内容加载失败', 'error');
+        }
     }
 }
 
@@ -4273,8 +4331,29 @@ async function loadDocumentForEditing() {
         
     } catch (error) {
         console.error('❌ 加载文档内容失败:', error);
-        document.getElementById('editorStatus').textContent = `加载失败: ${error.message}`;
-        showNotification('文档内容加载失败', 'error');
+        
+        // 根据错误类型提供不同的处理
+        if (error.message.includes('403')) {
+            // 403错误通常表示文档是生成的版本，无法直接访问原始文件
+            console.log('📝 检测到403错误，可能是生成的文档版本，允许用户直接编辑');
+            document.getElementById('editorStatus').textContent = '无法加载原始文档，可直接开始编辑新内容';
+            
+            // 设置一个空的编辑器，让用户可以开始编辑
+            const editor = document.getElementById('markdownEditor');
+            if (!editor.value || !editor.value.trim()) {
+                editor.value = '# 新文档\n\n开始编辑您的内容...';
+                currentEditingContent = editor.value;
+            }
+            
+            updateEditorStats();
+            setupSidebarEditorEventListeners();
+            
+            showNotification('原始文档无法访问，已为您创建新的编辑环境', 'info');
+        } else {
+            // 其他错误
+            document.getElementById('editorStatus').textContent = `加载失败: ${error.message}`;
+            showNotification('文档内容加载失败', 'error');
+        }
     }
 }
 
@@ -4624,5 +4703,149 @@ window.switchToEditMode = switchToEditMode;
 window.switchToPreviewMode = switchToPreviewMode;
 window.updatePreviewFromEditor = updatePreviewFromEditor;
 
+// 🆕 生成文件预览和下载功能
+// 预览生成的文档（最新版本）
+async function previewGeneratedDocument(fileName) {
+    console.log(`📖 预览生成文档的最新版本: ${fileName}`);
+    
+    try {
+        // 设置当前文档名称
+        window.currentEditingName = fileName;
+        
+        // 显示预览窗口
+        openMarkdownPreview(fileName);
+        
+        // 获取文件的最新版本
+        const response = await fetch(`http://localhost:8000/api/getfile_versions?filename=${encodeURIComponent(fileName)}`);
+        if (!response.ok) {
+            throw new Error(`获取版本信息失败: ${response.status}`);
+        }
+        
+        const versionData = await response.json();
+        if (!versionData || !versionData.versions || versionData.versions.length === 0) {
+            throw new Error('未找到文件版本');
+        }
+        
+        // 获取最新版本（第一个版本）
+        const latestVersion = versionData.versions[0];
+        const versionId = latestVersion.versionId || latestVersion.version_id || latestVersion.id;
+        
+        // 获取最新版本的文件内容
+        const contentResponse = await fetch(`http://localhost:8000/api/get_fileBinby_version?filename=${encodeURIComponent(fileName)}&version_id=${encodeURIComponent(versionId)}`);
+        if (!contentResponse.ok) {
+            throw new Error(`获取文件内容失败: ${contentResponse.status}`);
+        }
+        
+        const markdownContent = await contentResponse.text();
+        
+        // 渲染到预览区域
+        const previewResult = document.getElementById('previewResult');
+        if (previewResult) {
+            // 添加版本标识
+            const versionHeader = `<div class="version-preview-header">📄 ${fileName} (最新版本)</div>`;
+            
+            // 渲染Markdown内容
+            let htmlContent;
+            if (typeof marked !== 'undefined' && !window.markedLoadFailed) {
+                if (typeof marked.parse === 'function') {
+                    htmlContent = marked.parse(markdownContent);
+                } else if (typeof marked === 'function') {
+                    htmlContent = marked(markdownContent);
+                } else {
+                    htmlContent = markdownContent.replace(/\n/g, '<br>');
+                }
+            } else {
+                htmlContent = markdownContent.replace(/\n/g, '<br>');
+            }
+            
+            previewResult.innerHTML = versionHeader + htmlContent;
+            previewResult.style.display = 'block';
+            
+            // 隐藏加载和错误状态
+            document.getElementById('previewLoading').style.display = 'none';
+            document.getElementById('previewError').style.display = 'none';
+        }
+        
+        // 自动加载版本历史
+        if (typeof loadVersionHistory === 'function') {
+            console.log('📚 自动加载版本历史');
+            try {
+                await loadVersionHistory();
+            } catch (error) {
+                console.warn('⚠️ 自动加载版本历史失败:', error);
+            }
+        }
+        
+        showNotification(`已预览文档 "${fileName}" 的最新版本`, 'success');
+        
+    } catch (error) {
+        console.error('❌ 预览生成文档失败:', error);
+        showNotification(`预览失败: ${error.message}`, 'error');
+        
+        // 显示错误状态
+        const previewError = document.getElementById('previewError');
+        const previewErrorMsg = document.getElementById('previewErrorMsg');
+        if (previewError && previewErrorMsg) {
+            previewErrorMsg.textContent = `预览失败: ${error.message}`;
+            previewError.style.display = 'block';
+            document.getElementById('previewLoading').style.display = 'none';
+        }
+    }
+}
+
+// 下载生成文档的最新版本
+async function downloadLatestVersion(fileName) {
+    console.log(`📥 下载生成文档的最新版本: ${fileName}`);
+    
+    try {
+        showNotification(`正在获取 "${fileName}" 的最新版本...`, 'info');
+        
+        // 获取文件的最新版本
+        const response = await fetch(`http://localhost:8000/api/get_file_versions?filename=${encodeURIComponent(fileName)}`);
+        if (!response.ok) {
+            throw new Error(`获取版本信息失败: ${response.status}`);
+        }
+        
+        const versionData = await response.json();
+        if (!versionData || !versionData.versions || versionData.versions.length === 0) {
+            throw new Error('未找到文件版本');
+        }
+        
+        // 获取最新版本（第一个版本）
+        const latestVersion = versionData.versions[0];
+        const versionId = latestVersion.versionId || latestVersion.version_id || latestVersion.id;
+        const versionIdShort = versionId.substring(0, 8);
+        
+        // 构建下载URL
+        const downloadUrl = `http://localhost:8000/api/get_fileBinby_version?filename=${encodeURIComponent(fileName)}&version_id=${encodeURIComponent(versionId)}`;
+        
+        // 创建隐藏的下载链接
+        const downloadLink = document.createElement('a');
+        downloadLink.href = downloadUrl;
+        downloadLink.download = fileName; // 设置下载文件名
+        downloadLink.style.display = 'none';
+        
+        // 添加到页面并触发下载
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        
+        // 清理
+        setTimeout(() => {
+            document.body.removeChild(downloadLink);
+        }, 100);
+        
+        showNotification(`"${fileName}" 最新版本 (${versionIdShort}...) 下载已开始`, 'success');
+        
+    } catch (error) {
+        console.error('❌ 下载最新版本失败:', error);
+        showNotification(`下载失败: ${error.message}`, 'error');
+    }
+}
+
+// 导出新函数到全局
+window.previewGeneratedDocument = previewGeneratedDocument;
+window.downloadLatestVersion = downloadLatestVersion;
+
 console.log('✏️ 文档编辑器功能已加载！');
 console.log('🔄 侧边栏编辑模式切换功能已加载！');
+console.log('📄 生成文件预览和下载功能已加载！');

@@ -157,8 +157,8 @@ class RevertRequest(BaseModel):
 
 
 
-@router.get("/api/get_file_content_by_version", tags=["File Upload with Versioning"])
-async def get_file_content_by_version(filename: str, version_id: str):
+@router.get("/api/get_fileurlby_version", tags=["File Upload with Versioning"])
+async def get_fileurlby_version(filename: str, version_id: str):
     """
     获取文件特定版本的下载URL。
     """
@@ -198,3 +198,67 @@ async def get_file_content_by_version(filename: str, version_id: str):
     except Exception as exc:
         logger.error(f"获取文件下载URL时发生意外错误: {exc}")
         raise HTTPException(status_code=500, detail=f"获取文件下载URL时发生意外错误: {exc}")
+
+
+@router.get("/api/get_fileBinby_version", tags=["File Upload with Versioning"])
+async def get_fileBinby_version(filename: str, version_id: str):
+    """
+    获取文件特定版本的二进制文件。
+    """
+    try:
+        # 1. 检查存储桶是否存在
+        if not minio_client.bucket_exists(BUCKET_NAME):
+            raise HTTPException(status_code=404, detail=f"存储桶 '{BUCKET_NAME}' 不存在。")
+
+        # 2. 检查文件版本是否存在并获取文件信息
+        try:
+            file_stat = minio_client.stat_object(BUCKET_NAME, filename, version_id=version_id)
+        except S3Error as exc:
+            if exc.code == "NoSuchKey":
+                raise HTTPException(status_code=404, detail=f"文件 '{filename}' 的版本 '{version_id}' 未找到。")
+            raise
+
+        # 3. 获取文件对象
+        try:
+            file_data = minio_client.get_object(BUCKET_NAME, filename, version_id=version_id)
+            
+            # 创建一个生成器函数来流式传输文件内容
+            def file_generator():
+                try:
+                    for chunk in file_data.stream(1024 * 1024):  # 1MB chunks
+                        yield chunk
+                finally:
+                    file_data.close()
+                    file_data.release_conn()
+            
+            # 确定文件的MIME类型
+            import mimetypes
+            import urllib.parse
+            content_type, _ = mimetypes.guess_type(filename)
+            if content_type is None:
+                content_type = "application/octet-stream"
+            
+            # 处理文件名编码，支持中文字符
+            # 使用RFC 5987标准进行编码
+            encoded_filename = urllib.parse.quote(filename, safe='')
+            
+            # 返回流式响应
+            return StreamingResponse(
+                file_generator(),
+                media_type=content_type,
+                headers={
+                    "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+                    "Content-Length": str(file_stat.size)
+                }
+            )
+            
+        except S3Error as exc:
+            logger.error(f"获取文件内容时发生MinIO S3错误: {exc}")
+            raise HTTPException(status_code=500, detail=f"获取文件内容时发生S3错误: {exc}")
+
+    except S3Error as exc:
+        logger.error(f"获取文件时发生MinIO S3错误: {exc}")
+        raise HTTPException(status_code=500, detail=f"获取文件时发生S3错误: {exc}")
+    except Exception as exc:
+        logger.error(f"获取文件时发生意外错误: {exc}")
+        raise HTTPException(status_code=500, detail=f"获取文件时发生意外错误: {exc}")
