@@ -3964,7 +3964,7 @@ function loadGeneratedFiles() {
                 <div class="file-info">
                     <div class="file-icon">📄</div>
                     <div class="file-details">
-                        <div class="file-name">${fileName}</div>
+                        <div class="file-name" title="${fileName}">${fileName.length > 20 ? '...' + fileName.slice(-17) : fileName}</div>
                     </div>
                 </div>
                 <div class="file-actions">
@@ -3989,9 +3989,8 @@ function loadGeneratedFiles() {
             }
             .generated-file-item {
                 display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 12px;
+                flex-direction: column;
+                padding: 10px;
                 margin-bottom: 8px;
                 background: var(--bg-secondary);
                 border-radius: 8px;
@@ -4000,26 +3999,29 @@ function loadGeneratedFiles() {
             .file-info {
                 display: flex;
                 align-items: center;
-                flex: 1;
+                margin-bottom: 8px;
             }
             .file-icon {
-                font-size: 24px;
-                margin-right: 12px;
+                font-size: 20px;
+                margin-right: 10px;
             }
             .file-details {
                 flex: 1;
             }
             .file-name {
                 font-weight: 500;
-                margin-bottom: 4px;
+                font-size: 13px;
+                margin-bottom: 2px;
+                line-height: 1.3;
             }
             .file-meta {
-                font-size: 12px;
+                font-size: 11px;
                 color: var(--text-secondary);
             }
             .file-actions {
                 display: flex;
-                gap: 8px;
+                gap: 6px;
+                justify-content: flex-end;
             }
             .btn-small {
                 padding: 4px 8px;
