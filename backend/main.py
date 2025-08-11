@@ -112,6 +112,30 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# 🆕 增加请求体大小限制，支持大文件上传
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, max_size: int = 50 * 1024 * 1024):  # 50MB
+        super().__init__(app)
+        self.max_size = max_size
+
+    async def dispatch(self, request: StarletteRequest, call_next):
+        # 检查Content-Length头
+        content_length = request.headers.get('content-length')
+        if content_length and int(content_length) > self.max_size:
+            return Response(
+                content=f"Request body too large. Maximum size: {self.max_size} bytes",
+                status_code=413
+            )
+        return await call_next(request)
+
+# 添加请求大小限制中间件
+app.add_middleware(RequestSizeLimitMiddleware, max_size=50 * 1024 * 1024)  # 50MB限制
+
 # 添加CORS中间件
 app.add_middleware(
     CORSMiddleware,

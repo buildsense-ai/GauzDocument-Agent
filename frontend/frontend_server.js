@@ -121,7 +121,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
             },
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
-            timeout: 30000  // 30秒超时
+            timeout: 120000  // 增加到120秒超时，支持大文件上传
         });
 
         console.log(`📡 后端MinIO API响应状态: ${backendResponse.status}`);
