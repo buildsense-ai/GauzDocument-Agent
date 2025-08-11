@@ -735,7 +735,7 @@ function updateCurrentFilesUI() {
             <span>${getFileIcon(file.type)}</span>
             <span>${file.name}</span>
             <div class="file-actions">
-                ${file.isTemporary ? '<span class="file-action" onclick="addToKnowledgeFromTemp(' + index + ')">存库</span>' : ''}
+                ${file.isTemporary ? '<span class="file-action" onclick="addToKnowledgeFromTemp(' + index + ')" style="display: none;">存库</span>' : ''}
                 <span class="file-action" onclick="removeCurrentFile(' + index + ')">删除</span>
             </div>
         </div>
