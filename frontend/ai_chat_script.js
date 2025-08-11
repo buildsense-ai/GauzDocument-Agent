@@ -2537,9 +2537,10 @@ async function handleTaskCompletion(taskId, taskData, originalMessage) {
     if (Object.keys(minioUrls).length > 0) {
         completionMessage += '📥 **下载链接：**\n\n';
 
-        // 🎯 优先显示final_document (最重要的文档)
-        if (minioUrls.final_document) {
-            const finalDocUrl = minioUrls.final_document;
+        // 🎯 优先显示final_document 或 final_markdown (最重要的文档)
+        const preferredFinalUrl = minioUrls.final_document || minioUrls.final_markdown || minioUrls.generated_markdown;
+        if (preferredFinalUrl) {
+            const finalDocUrl = preferredFinalUrl;
             const finalDocName = extractDocumentName(finalDocUrl) || '完整版文档';
             completionMessage += `🎯 **主要文档：**\n`;
             completionMessage += `- [📄 ${finalDocName}](${finalDocUrl})\n`;
@@ -2548,10 +2549,7 @@ async function handleTaskCompletion(taskId, taskData, originalMessage) {
 
             // 🆕 保存final_document URL以供预览使用
             window.taskDocuments = window.taskDocuments || {};
-            window.taskDocuments[taskId] = {
-                url: finalDocUrl,
-                name: finalDocName
-            };
+            window.taskDocuments[taskId] = { url: finalDocUrl, name: finalDocName };
         }
 
         // 🔧 显示其他辅助文件
@@ -3079,9 +3077,10 @@ function renderTaskCompletionFromResult(taskResult, taskId) {
     if (Object.keys(minioUrls).length > 0) {
         completionMessage += '📥 **下载链接：**\n\n';
 
-        // 🎯 优先显示final_document (最重要的文档)
-        if (minioUrls.final_document) {
-            const finalDocUrl = minioUrls.final_document;
+        // 🎯 优先显示final_document 或 final_markdown
+        const preferredFinalUrl2 = minioUrls.final_document || minioUrls.final_markdown || minioUrls.generated_markdown;
+        if (preferredFinalUrl2) {
+            const finalDocUrl = preferredFinalUrl2;
             const finalDocName = extractDocumentName(finalDocUrl) || '完整版文档';
             completionMessage += `🎯 **主要文档：**\n`;
             completionMessage += `- [📄 ${finalDocName}](${finalDocUrl})\n`;
@@ -3090,10 +3089,7 @@ function renderTaskCompletionFromResult(taskResult, taskId) {
 
             // 🆕 保存final_document URL以供预览使用
             window.taskDocuments = window.taskDocuments || {};
-            window.taskDocuments[taskId] = {
-                url: finalDocUrl,
-                name: finalDocName
-            };
+            window.taskDocuments[taskId] = { url: finalDocUrl, name: finalDocName };
         }
 
         // 🔧 显示其他辅助文件

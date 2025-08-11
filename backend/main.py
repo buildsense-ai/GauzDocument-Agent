@@ -232,12 +232,15 @@ async def react_solve(request: Request, db: Session = Depends(get_db)):
         if not problem:
             raise HTTPException(status_code=400, detail="问题内容不能为空")
         
-        # 🆕 第三步：合并项目信息到上下文
+        # 🆕 第三步：合并项目信息到上下文，并记录原始用户查询，供下游工具使用
         if project_id:
             project_context.update({
                 'project_id': project_id,
                 'project_name': project_name
             })
+        # 记录原始用户查询，确保文档生成工具使用用户意图而非few-shot示例
+        if problem:
+            project_context['original_query'] = problem
             
         print(f"🔄 最终项目上下文: {project_context}")
         print(f"💬 用户问题: {problem}")
@@ -592,12 +595,14 @@ async def start_stream(request: Request, db: Session = Depends(get_db)):
         if not problem:
             raise HTTPException(status_code=400, detail="问题内容不能为空")
         
-        # 🆕 第三步：合并项目信息到上下文
+        # 🆕 第三步：合并项目信息到上下文，并记录原始用户查询，供下游工具使用
         if project_id:
             project_context.update({
                 'project_id': project_id,
                 'project_name': project_name
             })
+        if problem:
+            project_context['original_query'] = problem
         
         # 生成唯一会话ID
         session_id = str(uuid.uuid4())

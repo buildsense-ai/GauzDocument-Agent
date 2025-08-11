@@ -241,9 +241,24 @@ class APITool(BaseTool):
             print(f"📝 处理文档生成请求")
             
             # 🎯 按照 DocumentGenerationRequest 格式准备请求数据
+            # 强制使用当前项目上下文的 project_name，避免被few-shot示例覆盖
+            ctx_project_name = None
+            if isinstance(self.project_context, dict):
+                ctx_project_name = self.project_context.get("project_name")
+
+            # 兼容多来源：优先 explicit query，其次 problem，再次 project_context.original_query
+            fallback_query = None
+            try:
+                if isinstance(payload.get("project_context"), dict):
+                    fallback_query = payload["project_context"].get("original_query")
+            except Exception:
+                fallback_query = None
+
             api_request = {
-                "query": payload.get("query", ""),
-                "project_name": payload.get("project_name", "")
+                "query": payload.get("query") or payload.get("problem") or fallback_query or "",
+                "project_name": ctx_project_name or payload.get("project_name", ""),
+                # 开启评审与再生成流程（若未显式传入则默认开启）
+                "enable_review_and_regeneration": payload.get("enable_review_and_regeneration", True)
             }
             
             print(f"📋 发送参数: {json.dumps(api_request, ensure_ascii=False)}")
@@ -255,7 +270,7 @@ class APITool(BaseTool):
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     self.api_url,
-                    json=api_request,  # 只发送query和project_name
+                    json=api_request,  # 发送标准字段: query, project_name, enable_review_and_regeneration
                     headers={'Content-Type': 'application/json'},
                     timeout=aiohttp.ClientTimeout(total=300)
                 ) as response:
@@ -553,12 +568,13 @@ class ToolRegistry:
                 "error": f"工具 '{name}' 未找到。可用工具: {list(self.tools.keys())}"
             }
         
-        # 🏗️ 自动注入项目上下文参数
+        # 🏗️ 自动注入/覆盖项目参数，确保与当前项目一致
         if self.project_context and self.project_context.get('project_name'):
-            # 为需要project_name的工具自动注入参数
-            if name in ['rag_tool', 'pdf_parser'] and 'project_name' not in kwargs:
-                kwargs['project_name'] = self.project_context['project_name']
-                print(f"🏗️ 自动注入项目参数到{name}: project_name={self.project_context['project_name']}")
+            current_project_name = self.project_context['project_name']
+            # 对所有需要项目名的工具注入或覆盖（含 document_generator）
+            if name in ['rag_tool', 'pdf_parser', 'document_generator']:
+                kwargs['project_name'] = current_project_name
+                print(f"🏗️ 强制注入项目参数到{name}: project_name={current_project_name}")
             
             # 为其他工具也可以添加项目上下文（如果需要）
             # if name == 'document_generator':
