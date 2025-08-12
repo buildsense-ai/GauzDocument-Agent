@@ -102,6 +102,93 @@ async def upload_with_versioning(file: UploadFile = File(...)):
         logger.error(f"发生意外错误: {exc}")
         raise HTTPException(status_code=500, detail=f"发生意外错误: {exc}")
 
+
+@router.post("/api/upload_return_url", tags=["File Upload with Versioning"])
+async def uploadfile_with_return_url(file: UploadFile = File(...)):
+    """
+    上传文件并直接返回可访问的 MinIO URL。
+
+    - 入参: 单文件（支持 PDF/Markdown/DOCX，与版本化上传保持一致）
+    - 行为: 若桶不存在则创建并确保启用版本控制；对象名使用原文件名
+    - 返回: 最小可用信息 + 多种 URL 形式（minio://、HTTP直链、长效预签名）
+    """
+    # 1. 验证文件类型
+    if file.content_type not in ALLOWED_CONTENT_TYPES:
+        logger.warning(f"上传了无效的文件类型: {file.content_type}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"文件类型无效。只允许上传 PDF, Markdown, 和 DOCX。当前类型为 {file.content_type}"
+        )
+
+    try:
+        # 2. 确保存储桶存在并启用版本控制
+        found = minio_client.bucket_exists(BUCKET_NAME)
+        if not found:
+            minio_client.make_bucket(BUCKET_NAME)
+            logger.info(f"存储桶 '{BUCKET_NAME}' 已创建。")
+            minio_client.set_bucket_versioning(BUCKET_NAME, {"Status": "Enabled"})
+            logger.info(f"存储桶 '{BUCKET_NAME}' 已启用版本控制。")
+        else:
+            versioning_status = minio_client.get_bucket_versioning(BUCKET_NAME)
+            if getattr(versioning_status, 'status', None) != "Enabled":
+                minio_client.set_bucket_versioning(BUCKET_NAME, {"Status": "Enabled"})
+                logger.info(f"检测到版本控制未启用，现已为存储桶 '{BUCKET_NAME}' 启用。")
+
+        # 3. 读取文件内容
+        file_content = await file.read()
+        file_size = len(file_content)
+        file_stream = io.BytesIO(file_content)
+
+        # 4. 上传对象（使用原始文件名；若重名将产生新版本）
+        object_name = file.filename
+        result = minio_client.put_object(
+            bucket_name=BUCKET_NAME,
+            object_name=object_name,
+            data=file_stream,
+            length=file_size,
+            content_type=file.content_type,
+        )
+
+        logger.info(
+            f"成功上传 '{object_name}' (version_id: {getattr(result, 'version_id', None)}) 到 '{BUCKET_NAME}'"
+        )
+
+        # 5. 组装多种可用URL
+        minio_uri = f"minio://{BUCKET_NAME}/{object_name}"
+        public_host = os.getenv("MINIO_PUBLIC_HOST", os.getenv("MINIO_API_HOST", "43.139.19.144:9000"))
+        http_url = f"http://{public_host}/{BUCKET_NAME}/{object_name}"
+
+        # 生成长效预签名URL（演示用途，可按需缩短）
+        try:
+            from datetime import timedelta
+            presigned_url = minio_client.presigned_get_object(
+                BUCKET_NAME,
+                object_name,
+                expires=timedelta(days=365*10),
+                version_id=getattr(result, 'version_id', None)
+            )
+        except Exception as e:
+            logger.warning(f"生成预签名URL失败，将返回空值: {e}")
+            presigned_url = None
+
+        return {
+            "success": True,
+            "message": "文件上传成功",
+            "filename": object_name,
+            "bucket": getattr(result, 'bucket_name', BUCKET_NAME),
+            "version_id": getattr(result, 'version_id', None),
+            "minio_url": minio_uri,
+            "http_url": http_url,
+            "presigned_url": presigned_url,
+        }
+
+    except S3Error as exc:
+        logger.error(f"MinIO S3 错误: {exc}")
+        raise HTTPException(status_code=500, detail=f"发生 S3 错误: {exc}")
+    except Exception as exc:
+        logger.error(f"发生意外错误: {exc}")
+        raise HTTPException(status_code=500, detail=f"发生意外错误: {exc}")
+
 @router.get("/api/getfile_versions", tags=["File Upload with Versioning"])
 async def get_file_versions(filename: str):
     """

@@ -35,7 +35,7 @@ class QwenClient:
     async def chat_completion(
         self,
         messages: List[Dict[str, str]],
-        model: str = "qwen-long",  # 默认模型已改为 qwen-long
+        model: str = "qwen-plus",  # 默认模型已改为 qwen-plus
         temperature: float = 0.1,
         max_tokens: int = 4096,
         stream: bool = False
@@ -45,7 +45,7 @@ class QwenClient:
         
         Args:
             messages: 对话消息列表
-            model: 使用的模型名称, 默认为"qwen-long"
+            model: 使用的模型名称, 默认为"qwen-plus"
             temperature: 温度参数, 控制随机性
             max_tokens: 最大token数
             stream: 是否使用流式响应
@@ -110,7 +110,7 @@ class QwenClient:
     def chat_completion_sync(
         self,
         messages: List[Dict[str, str]],
-        model: str = "qwen-long",  # 默认模型已改为 qwen-long
+        model: str = "qwen-plus",  # 默认模型已改为 qwen-plus
         temperature: float = 0.1,
         max_tokens: int = 4096
     ) -> Dict[str, Any]:
@@ -119,7 +119,7 @@ class QwenClient:
         
         Args:
             messages: 对话消息列表
-            model: 使用的模型名称, 默认为"qwen-long"
+            model: 使用的模型名称, 默认为"qwen-plus"
             temperature: 温度参数, 控制随机性
             max_tokens: 最大token数
             
@@ -198,7 +198,7 @@ class QwenClient:
             "qwen-turbo",
             "qwen-plus",
             "qwen-max",
-            "qwen-long"  # 已添加 qwen-long
+            "qwen-plus"  # 已添加 qwen-plus
         ]
     
     def test_connection(self) -> bool:
@@ -214,7 +214,7 @@ class QwenClient:
                 messages=[
                     {"role": "user", "content": "测试连接"}
                 ],
-                model="qwen-long"
+                model="qwen-plus"
             )
             return True
         except Exception as e:
