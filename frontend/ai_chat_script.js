@@ -26,6 +26,9 @@ let userSettings = {
 // API基础URL - 指向当前前端服务器（会代理到后端）
 const API_BASE = '/api';
 
+// 🆕 记录最近一次用于渲染预览的原始Markdown，用于编辑模式回填，避免从HTML提取导致图片链接丢失
+let lastRenderedMarkdown = '';
+
 // 🆕 通用API请求函数，自动添加项目ID和项目名称到请求头
 async function apiRequest(url, options = {}) {
     const headers = {
@@ -3290,6 +3293,7 @@ async function fetchAndRenderMarkdown(url, docName) {
         htmlContent = enhanceImages(htmlContent);
 
         // 显示渲染结果
+        try { lastRenderedMarkdown = markdownContent; } catch(e) {}
         showPreviewResult(htmlContent);
 
         // 添加图片懒加载和错误处理
@@ -3412,7 +3416,8 @@ function enhanceImages(htmlContent) {
                          style="max-width: 400px; width: auto; height: auto; margin: 12px 0; border-radius: 8px; display: block; opacity: 0; cursor: pointer;"
                          data-link-text="${linkText.replace(/"/g, '&quot;')}" 
                          data-url="${url.replace(/"/g, '&quot;')}"
-                         onload="this.style.opacity='1'; this.previousElementSibling?.remove(); console.log('✅ 图片加载成功:', this.dataset.linkText);"
+                         data-enhanced="1"
+                         onload="this.style.opacity='1'; (this.parentElement && this.parentElement.querySelector('.image-loading'))?.remove(); console.log('✅ 图片加载成功:', this.dataset.linkText);"
                          onerror="handleImageError(this)"
                          onclick="window.open('${url}', '_blank')"
                          title="点击查看大图">
@@ -3428,8 +3433,8 @@ function enhanceImages(htmlContent) {
     enhanced = enhanced.replace(
         /<img([^>]+)>/g,
         function (match, attributes) {
-            // 检查是否已经被上面的逻辑处理过
-            if (match.includes('class="image-container"') || attributes.includes('data-link-text')) {
+            // 检查是否已经被增强过，避免重复包装
+            if (attributes.includes('data-link-text') || attributes.includes('data-enhanced')) {
                 return match;
             }
 
@@ -3440,7 +3445,8 @@ function enhanceImages(htmlContent) {
                 <img${attributes} 
                      loading="lazy" 
                      style="max-width: 400px; width: auto; height: auto; margin: 12px 0; border-radius: 8px; display: block; cursor: pointer;"
-                     onload="this.style.opacity='1'; this.previousElementSibling?.remove(); console.log('✅ 图片加载成功');"
+                     data-enhanced="1"
+                     onload="this.style.opacity='1'; (this.parentElement && this.parentElement.querySelector('.image-loading'))?.remove(); console.log('✅ 图片加载成功');"
                      onerror="handleImageError(this)"
                      onclick="this.src && window.open(this.src, '_blank')"
                      title="点击查看大图">
@@ -4160,14 +4166,15 @@ function switchToEditMode() {
         updateEditorStats();
         setupSidebarEditorEventListeners();
     } else if (hasPreviewContent) {
-        // 如果预览区域有非版本预览的内容，尝试从中提取Markdown
-        console.log('📋 从预览内容恢复编辑内容');
+        // 优先使用最近一次渲染时的原始Markdown，避免从HTML提取导致图片链接丢失
+        console.log('📋 从最近一次渲染的原始Markdown恢复编辑内容');
         const editor = document.getElementById('markdownEditor');
-        // 简单的HTML到Markdown转换（基础版本）
-        let markdownContent = previewResult.textContent || previewResult.innerText || '';
+        const markdownContent = (typeof lastRenderedMarkdown === 'string' && lastRenderedMarkdown.trim())
+            ? lastRenderedMarkdown
+            : (previewResult.textContent || previewResult.innerText || '');
         editor.value = markdownContent;
         currentEditingContent = markdownContent;
-        document.getElementById('editorStatus').textContent = '已从预览内容恢复';
+        document.getElementById('editorStatus').textContent = '已从原始Markdown恢复';
         updateEditorStats();
         setupSidebarEditorEventListeners();
     } else {
@@ -4393,6 +4400,14 @@ function updatePreviewFromEditor() {
         document.getElementById('previewLoading').style.display = 'none';
         document.getElementById('previewError').style.display = 'none';
         
+        // 🆕 记录渲染用的原始Markdown，供切回编辑模式时使用
+        try { lastRenderedMarkdown = markdownContent; } catch(e) {}
+
+        // 🆕 为预览中的图片补充交互与淡入效果
+        setTimeout(() => {
+            try { setupImageHandling(); } catch (e) { /* no-op */ }
+        }, 100);
+
         console.log('✅ 预览内容已从编辑器更新');
         
     } catch (error) {

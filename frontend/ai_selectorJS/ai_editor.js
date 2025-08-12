@@ -106,8 +106,8 @@ function initializeAIEditorEventListeners() {
             
             console.log('📝 选中文本:', selectedText, '长度:', selectedText.length);
             
-            // 如果选中了文本且长度合适，显示AI编辑提示气泡
-            if (selectedText.trim() && selectedText.length > 5 && selectedText.length < 1000) {
+            // 如果选中了文本且长度>20，显示AI编辑提示气泡（移除上限，支持长文本）
+            if (selectedText.trim() && selectedText.length > 20) {
                 // 检查AI面板是否已经显示
                 const aiCommandPanel = document.getElementById('aiCommandPanel');
                 console.log('🎛️ AI面板状态:', aiCommandPanel ? aiCommandPanel.classList.contains('show') : 'not found');
@@ -127,8 +127,9 @@ function initializeAIEditorEventListeners() {
                     // 如果没有鼠标事件，计算选中文本的大概位置
                     if (!event.clientX) {
                         const rect = activeEditor.getBoundingClientRect();
-                        x = rect.left + 100;
-                        y = rect.top + 100;
+                        // 初始放在编辑器可视区域中部
+                        x = rect.left + Math.min(200, Math.max(20, rect.width / 2));
+                        y = rect.top + Math.min(200, Math.max(20, rect.height / 2));
                     }
                     
                     console.log('🎯 创建气泡位置:', x, y);
@@ -502,9 +503,9 @@ function createAIEditTooltip(x, y) {
         }
     }
     
-    // 获取当前选中的文本
+    // 获取当前选中的文本（显示完整，不截断）
     const selectedText = getSelectedText();
-    const displayText = selectedText ? selectedText.substring(0, 50) + (selectedText.length > 50 ? '...' : '') : '未选中文本';
+    const displayText = selectedText && selectedText.length > 0 ? selectedText : '未选中文本';
     
     const tooltip = document.createElement('div');
     tooltip.id = 'aiEditTooltip';
@@ -521,9 +522,11 @@ function createAIEditTooltip(x, y) {
         </div>
     `;
     
-    // 设置位置
-    tooltip.style.left = x + 'px';
-    tooltip.style.top = (y - 50) + 'px';
+    // 先设置期望位置
+    let desiredLeft = x;
+    let desiredTop = y - 50;
+    tooltip.style.left = desiredLeft + 'px';
+    tooltip.style.top = desiredTop + 'px';
     
     console.log('📍 气泡样式设置:', tooltip.style.left, tooltip.style.top);
     
@@ -544,6 +547,17 @@ function createAIEditTooltip(x, y) {
     aiEditTooltip = tooltip;
     
     console.log('✅ 气泡已添加到DOM');
+    // 🔧 保证气泡在视口内可见
+    try {
+        const margin = 8;
+        const width = tooltip.offsetWidth || 240;
+        const height = tooltip.offsetHeight || 48;
+        let clampedLeft = Math.min(Math.max(desiredLeft, margin), window.innerWidth - width - margin);
+        let clampedTop = Math.min(Math.max(desiredTop, margin), window.innerHeight - height - margin);
+        tooltip.style.left = clampedLeft + 'px';
+        tooltip.style.top = clampedTop + 'px';
+    } catch (e) { /* no-op */ }
+
     
     // 立即验证DOM添加状态
     const verifyElement = document.getElementById('aiEditTooltip');
@@ -592,7 +606,7 @@ function createAIEditTooltip(x, y) {
         });
     }, 100);
     
-    // 5秒后自动消失（仅对气泡有效，输入框状态不会自动消失）
+    // 6秒后自动消失（仅对气泡有效，输入框状态不会自动消失）并在即将消失时向上微移以提示位置
     tooltipTimeout = setTimeout(() => {
         // 检查是否已经转换为输入框
         const inputContainer = document.getElementById('aiEditInputContainer');
@@ -601,6 +615,11 @@ function createAIEditTooltip(x, y) {
             // 只移除气泡，不调用removeAIEditTooltip避免误删输入框
             const tooltipElement = document.getElementById('aiEditTooltip');
             if (tooltipElement && tooltipElement.parentNode) {
+                // 微移提示
+                try {
+                    const currentTop = parseInt(tooltipElement.style.top || '0', 10) || 0;
+                    tooltipElement.style.top = (currentTop - 12) + 'px';
+                } catch (e) {}
                 tooltipElement.parentNode.removeChild(tooltipElement);
                 if (aiEditTooltip === tooltipElement) {
                     aiEditTooltip = null;
@@ -646,8 +665,8 @@ function transformTooltipToInput(tooltip, x, y) {
         border: 2px solid #007acc !important;
         border-radius: 8px !important;
         box-shadow: 0 4px 20px rgba(0,0,0,0.15) !important;
-        min-width: 300px !important;
-        max-width: 400px !important;
+        min-width: 420px !important;
+        max-width: 640px !important;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
         opacity: 1 !important;
         transform: translateY(0) scale(1) !important;
@@ -665,7 +684,8 @@ function transformTooltipToInput(tooltip, x, y) {
     
     // 获取当前选中的文本
     const selectedText = getSelectedText();
-    const displayText = selectedText ? selectedText.substring(0, 100) + (selectedText.length > 100 ? '...' : '') : '未选中文本';
+    // 显示完整选中文本，不再截断
+    const displayText = selectedText && selectedText.length > 0 ? selectedText : '未选中文本';
     
     inputContainer.innerHTML = `
         <div style="padding: 12px; border-bottom: 1px solid #eee; display: flex; align-items: center; justify-content: space-between; background: #f8f9fa; border-radius: 6px 6px 0 0;">
@@ -676,9 +696,9 @@ function transformTooltipToInput(tooltip, x, y) {
             <button id="closeAIInput" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #666; padding: 4px; border-radius: 4px;" onmouseover="this.style.background='#eee'" onmouseout="this.style.background='none'">×</button>
         </div>
         <div style="padding: 16px;">
-            <div style="margin-bottom: 12px; padding: 10px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; border-left: 4px solid #007acc;">
+            <div style="margin-bottom: 12px; padding: 12px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; border-left: 4px solid #007acc;">
                 <div style="font-size: 12px; color: #666; margin-bottom: 4px; font-weight: 600;">📝 当前选中的文本:</div>
-                <div style="font-size: 13px; color: #333; line-height: 1.4; max-height: 60px; overflow-y: auto; white-space: pre-wrap;">${displayText}</div>
+                <div style="font-size: 14px; color: #333; line-height: 1.6; max-height: 140px; overflow-y: auto; white-space: pre-wrap;">${displayText}</div>
             </div>
             <textarea id="quickAICommand" placeholder="请描述您希望AI如何修改上述选中的文本..." rows="3" style="width: 100%; border: 1px solid #ddd; border-radius: 4px; padding: 8px; font-size: 14px; resize: vertical; outline: none; box-sizing: border-box;"></textarea>
             <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
