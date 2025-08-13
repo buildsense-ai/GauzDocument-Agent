@@ -8,6 +8,7 @@
 
     <!-- 📌 已更新为您的CSS文件路径 -->
     <link rel="stylesheet" href="css/ai_chat_interface.css">
+    <link rel="stylesheet" href="css/svg.css">
     
     <!-- 🆕 引入marked.js库用于Markdown解析 - 稳定版本 -->
     <script src="https://cdn.jsdelivr.net/npm/marked@16.1.1/lib/marked.umd.min.js"
@@ -189,17 +190,35 @@
             <div class="preview-toolbar" id="previewToolbar">
                 <div class="toolbar-actions">
                     <div class="toolbar-buttons">
-                        <button class="preview-btn" onclick="downloadOriginalDoc()">
-                            <span>📄</span> 下载原文件
+                        <button class="preview-btn" onclick="downloadOriginalDoc()" title="下载原文件">
+                            <svg class="svg-icon" viewBox="0 0 20 20">
+                                <path fill="none" d="M9.634,10.633c0.116,0.113,0.265,0.168,0.414,0.168c0.153,0,0.308-0.06,0.422-0.177l4.015-4.111c0.229-0.235,0.225-0.608-0.009-0.836c-0.232-0.229-0.606-0.222-0.836,0.009l-3.604,3.689L6.35,5.772C6.115,5.543,5.744,5.55,5.514,5.781C5.285,6.015,5.29,6.39,5.522,6.617L9.634,10.633z"></path>
+                                <path fill="none" d="M17.737,9.815c-0.327,0-0.592,0.265-0.592,0.591v2.903H2.855v-2.903c0-0.327-0.264-0.591-0.591-0.591c-0.327,0-0.591,0.265-0.591,0.591V13.9c0,0.328,0.264,0.592,0.591,0.592h15.473c0.327,0,0.591-0.264,0.591-0.592v-3.494C18.328,10.08,18.064,9.815,17.737,9.815z"></path>
+                            </svg>
+                            源文件
                         </button>
-                        <button class="preview-btn" onclick="downloadEditedContent()">
-                            <span>💾</span> 下载修改版
+                        <button class="preview-btn" onclick="downloadEditedContent()" title="下载修改版">
+                            <svg class="svg-icon" viewBox="0 0 20 20">
+                                <path fill="none" d="M9.634,10.633c0.116,0.113,0.265,0.168,0.414,0.168c0.153,0,0.308-0.06,0.422-0.177l4.015-4.111c0.229-0.235,0.225-0.608-0.009-0.836c-0.232-0.229-0.606-0.222-0.836,0.009l-3.604,3.689L6.35,5.772C6.115,5.543,5.744,5.55,5.514,5.781C5.285,6.015,5.29,6.39,5.522,6.617L9.634,10.633z"></path>
+                                <path fill="none" d="M17.737,9.815c-0.327,0-0.592,0.265-0.592,0.591v2.903H2.855v-2.903c0-0.327-0.264-0.591-0.591-0.591c-0.327,0-0.591,0.265-0.591,0.591V13.9c0,0.328,0.264,0.592,0.591,0.592h15.473c0.327,0,0.591-0.264,0.591-0.592v-3.494C18.328,10.08,18.064,9.815,17.737,9.815z"></path>
+                            </svg>
+                            修改版
                         </button>
-                        <button class="preview-btn" onclick="replaceToolbarButtons()">
-                            <span>🕡</span> 
+                        <button class="preview-btn" onclick="replaceToolbarButtons()" title="版本工具">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                         </button>
-                        <button class="preview-btn" onclick="refreshPreview()">
-                            <span>🔄</span> 
+                        <button class="preview-btn" onclick="refreshPreview()" title="刷新预览">
+                            <svg class="svg-icon" viewBox="0 0 20 20">
+                                <path fill="none" d="M19.305,9.61c-0.235-0.235-0.615-0.235-0.85,0l-1.339,1.339c0.045-0.311,0.073-0.626,0.073-0.949
+                                    c0-3.812-3.09-6.901-6.901-6.901c-2.213,0-4.177,1.045-5.44,2.664l0.897,0.719c1.053-1.356,2.693-2.232,4.543-2.232
+                                    c3.176,0,5.751,2.574,5.751,5.751c0,0.342-0.037,0.675-0.095,1l-1.746-1.39c-0.234-0.235-0.614-0.235-0.849,0
+                                    c-0.235,0.235-0.235,0.615,0,0.85l2.823,2.25c0.122,0.121,0.282,0.177,0.441,0.172c0.159,0.005,0.32-0.051,0.44-0.172l2.25-2.25
+                                    C19.539,10.225,19.539,9.845,19.305,9.61z M10.288,15.752c-3.177,0-5.751-2.575-5.751-5.752c0-0.276,0.025-0.547,0.062-0.813
+                                    l1.203,1.203c0.235,0.234,0.615,0.234,0.85,0c0.234-0.235,0.234-0.615,0-0.85l-2.25-2.25C4.281,7.169,4.121,7.114,3.961,7.118
+                                    C3.802,7.114,3.642,7.169,3.52,7.291l-2.824,2.25c-0.234,0.235-0.234,0.615,0,0.85c0.235,0.234,0.615,0.234,0.85,0l1.957-1.559
+                                    C3.435,9.212,3.386,9.6,3.386,10c0,3.812,3.09,6.901,6.902,6.901c2.083,0,3.946-0.927,5.212-2.387l-0.898-0.719
+                                    C13.547,14.992,12.008,15.752,10.288,15.752z"></path>
+                            </svg>
                         </button>
                         <button class="preview-btn edit-btn" onclick="switchToEditMode()">
                                 <span>✏️</span> 

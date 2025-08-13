@@ -1359,10 +1359,10 @@ body {
 }
 
 .modal-close {
-    background: var(--error-color);
-    border: 1px solid var(--error-color);
-    font-size: 24px;
-    color: #fff;
+    background: #fff;
+    border: 1px solid var(--border-color);
+    font-size: 26px;
+    color: var(--text-secondary);
     cursor: pointer;
     padding: 4px;
     border-radius: 4px;
@@ -1375,8 +1375,8 @@ body {
 }
 
 .modal-close:hover {
-    background: #dc2626;
-    border-color: #dc2626;
+    background: var(--error-color);
+    border-color: var(--error-color);
     color: #fff;
 }
 
@@ -1475,15 +1475,23 @@ body {
 }
 
 .preview-sidebar .preview-btn.close-btn {
-    background: var(--error-color);
-    color: white;
-    border-color: var(--error-color);
+    background: #fff;
+    color: var(--text-secondary);
+    border-color: var(--border-color);
     margin-left: 6px;
 }
 
+/* 放大工具栏关闭按钮的“×”字号，提升可见性 */
+.preview-sidebar .preview-btn.close-btn span {
+    font-size: 18px;
+    line-height: 1;
+    display: inline-block;
+}
+
 .preview-sidebar .preview-btn.close-btn:hover {
-    background: #dc2626;
-    border-color: #dc2626;
+    background: var(--error-color);
+    border-color: var(--error-color);
+    color: #fff;
 }
 
 .preview-sidebar .close-btn {
@@ -1498,27 +1506,27 @@ body {
     background: var(--bg-primary);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 16px;
+    font-size: 18px;
     transition: all 0.2s ease;
     flex-shrink: 0;
 }
 
 .preview-sidebar .close-btn:hover {
     background: var(--error-color);
-    color: white;
+    color: #fff;
     border-color: var(--error-color);
 }
 
 .preview-sidebar .editor-btn.close-btn {
-    background: var(--error-color);
-    color: #fff;
-    border: 1px solid var(--error-color);
+    background: #fff;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
     margin-left: 6px;
 }
 
 .preview-sidebar .editor-btn.close-btn:hover {
-    background: #dc2626;
-    border-color: #dc2626;
+    background: var(--error-color);
+    border-color: var(--error-color);
     color: #fff;
 }
 
