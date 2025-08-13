@@ -430,7 +430,7 @@ function downloadFile() {
         showNotification(`正在下载当前浏览版本 ${versionIdShort}...`, 'info');
         
         // 构建下载URL
-        const downloadUrl = `http://localhost:8000/api/get_fileBinby_version?filename=${encodeURIComponent(fileName)}&version_id=${encodeURIComponent(currentBrowsingVersionId)}`;
+        const downloadUrl = `http://43.139.19.144:8000/api/get_fileBinby_version?filename=${encodeURIComponent(fileName)}&version_id=${encodeURIComponent(currentBrowsingVersionId)}`;
         
         // 创建隐藏的下载链接
         const downloadLink = document.createElement('a');
@@ -471,7 +471,7 @@ async function loadVersionContentToEditor() {
     
     try {
         // 使用后端API获取文件内容
-        const response = await fetch(`http://localhost:8000/api/get_fileBinby_version?filename=${encodeURIComponent(fileName)}&version_id=${encodeURIComponent(versionId)}`);
+        const response = await fetch(`http://43.139.19.144:8000/api/get_fileBinby_version?filename=${encodeURIComponent(fileName)}&version_id=${encodeURIComponent(versionId)}`);
         
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
@@ -588,7 +588,7 @@ function uploadFile() {
     showNotification(`正在上传当前编辑的文档 "${fileNameWithExtension}" 到版本控制系统...`, 'info');
     
     // 发送上传请求
-    fetch('http://127.0.0.1:8000/api/uploadwithversion', {
+    fetch('http://43.139.19.144:8000/api/uploadwithversion', {
         method: 'POST',
         body: formData
     })
@@ -662,7 +662,7 @@ async function loadVersionHistory() {
         showNotification('正在加载版本历史...', 'info');
         console.log('🌐 发送API请求获取版本历史');
         
-        const response = await fetch(`http://localhost:8000/api/getfile_versions?filename=${encodeURIComponent(fileNameWithExtension)}`);
+        const response = await fetch(`http://43.139.19.144:8000/api/getfile_versions?filename=${encodeURIComponent(fileNameWithExtension)}`);
         
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
@@ -802,7 +802,7 @@ async function previewVersion() {
         showNotification(`正在预览版本 ${versionIdShort}...`, 'info');
         
         // 获取特定版本的内容
-        const response = await fetch(`http://localhost:8000/api/get_fileBinby_version?filename=${encodeURIComponent(getCurrentFileName())}&version_id=${version.versionId || version.version_id || version.id}`);
+        const response = await fetch(`http://43.139.19.144:8000/api/get_fileBinby_version?filename=${encodeURIComponent(getCurrentFileName())}&version_id=${version.versionId || version.version_id || version.id}`);
         if (!response.ok) {
             throw new Error('Failed to load version content');
         }
@@ -888,7 +888,7 @@ async function restoreVersion() {
         showNotification(`正在恢复到版本 ${versionIdShort}...`, 'info');
         
         // 获取特定版本的内容
-        const response = await fetch(`http://localhost:8000/api/get_fileBinby_version?filename=${encodeURIComponent(getCurrentFileName())}&version_id=${version.versionId || version.version_id || version.id}`);
+        const response = await fetch(`http://43.139.19.144:8000/api/get_fileBinby_version?filename=${encodeURIComponent(getCurrentFileName())}&version_id=${version.versionId || version.version_id || version.id}`);
         if (!response.ok) {
             throw new Error('Failed to load version content');
         }
