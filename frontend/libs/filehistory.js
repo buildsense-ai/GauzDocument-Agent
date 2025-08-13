@@ -6,7 +6,7 @@ let isToolbarReplaced = false;
 
 // 替换工具栏按钮的函数
 function replaceToolbarButtons() {
-    const toolbarDiv = document.querySelector('.toolbar-buttons');
+    const toolbarDiv = document.querySelector('.preview-sidebar .toolbar-buttons') || document.querySelector('.toolbar-buttons');
     if (!toolbarDiv) {
         console.error('找不到工具栏容器');
         return;
@@ -17,6 +17,9 @@ function replaceToolbarButtons() {
         originalButtonsHTML = toolbarDiv.innerHTML;
     }
     
+    // 应用简洁样式类
+    try { toolbarDiv.classList.add('toolbar-minimal'); } catch(e) {}
+
     // 添加淡出效果
     toolbarDiv.style.transition = 'opacity 0.3s ease-in-out';
     toolbarDiv.style.opacity = '0';
@@ -25,20 +28,20 @@ function replaceToolbarButtons() {
     setTimeout(() => {
         // 创建新的按钮HTML
         const newButtonsHTML = `
-            <button class="preview-btn" name="上一版本" onclick="goBack()">
-                <span>⬅️</span> 
+            <button class="preview-btn" name="上一版本" onclick="goBack()" title="上一版本">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
             </button>
-            <button class="preview-btn" name="下一版本" onclick="goForward()">
-                <span>➡️</span> 
+            <button class="preview-btn" name="下一版本" onclick="goForward()" title="下一版本">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12H19"/><path d="M12 5l7 7-7 7"/></svg>
             </button>
-            <button class="preview-btn" onclick="uploadFile()">
-                <span>⬆️</span> 
+            <button class="preview-btn" onclick="uploadFile()" title="上传当前编辑文档">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
             </button>
-            <button class="preview-btn" onclick="downloadFile()">
-                <span>⬇️</span> 
+            <button class="preview-btn" onclick="downloadFile()" title="下载当前浏览版本">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12l7 7 7-7"/></svg>
             </button>
-            <button class="preview-btn" onclick="restoreOriginalButtons()">
-                <span>↩️</span> 
+            <button class="preview-btn" onclick="restoreOriginalButtons()" title="恢复原工具栏">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 3v6h6"/></svg>
             </button>
             <div class="version-history-container" style="display: none;">
                 <div class="version-timeline">
@@ -341,6 +344,7 @@ function restoreOriginalButtons() {
         // 恢复原始按钮
         toolbarDiv.innerHTML = originalButtonsHTML;
         isToolbarReplaced = false;
+        try { toolbarDiv.classList.remove('toolbar-minimal'); } catch(e) {}
         
         // 添加淡入效果
         setTimeout(() => {
@@ -524,6 +528,9 @@ async function loadVersionContentToEditor() {
             // 显示渲染结果
             previewResult.innerHTML = htmlContent;
             previewResult.style.display = 'block';
+
+            // 记录最近一次渲染所用的Markdown，供切换编辑和下载使用
+            try { window.lastRenderedMarkdown = content; } catch(e) {}
             
             // 更新预览状态
             const previewStatus = document.getElementById('previewStatus');
@@ -852,7 +859,10 @@ async function previewVersion() {
             // 显示渲染结果
             previewResult.innerHTML =  htmlContent;
             previewResult.style.display = 'block';
-            
+
+            // 记录最近一次渲染所用Markdown，供切换编辑和下载使用
+            try { window.lastRenderedMarkdown = content; } catch(e) {}
+
             showNotification(`版本 ${versionIdShort} 预览完成`, 'success');
         }
         

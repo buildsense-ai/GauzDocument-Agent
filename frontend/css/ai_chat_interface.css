@@ -88,7 +88,6 @@ body {
 }
 
 .container.preview-mode {
-    /* 预览模式下的分栏布局 */
 }
 
 .sidebar {
@@ -1360,10 +1359,10 @@ body {
 }
 
 .modal-close {
-    background: none;
-    border: none;
+    background: var(--error-color);
+    border: 1px solid var(--error-color);
     font-size: 24px;
-    color: var(--text-secondary);
+    color: #fff;
     cursor: pointer;
     padding: 4px;
     border-radius: 4px;
@@ -1376,8 +1375,9 @@ body {
 }
 
 .modal-close:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #fff;
 }
 
 .preview-sidebar .preview-toolbar {
@@ -1409,6 +1409,34 @@ body {
     flex-wrap: wrap;
     gap: 6px;
     flex: 1;
+}
+
+/* 极简工具栏按钮样式 */
+.toolbar-minimal button {
+    background-color: transparent;
+    border: none;
+    padding: 8px;
+    margin: 0 4px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    color: #555;
+}
+
+.toolbar-minimal button:hover {
+    background-color: var(--bg-hover);
+    color: #007aff;
+}
+
+.toolbar-minimal button:active {
+    background-color: #e0e0e0;
+    transform: scale(0.95);
+}
+
+.toolbar-minimal button:disabled {
+    color: #ccc;
+    background-color: transparent;
+    cursor: not-allowed;
 }
 
 .preview-sidebar .toolbar-close {
@@ -1482,16 +1510,16 @@ body {
 }
 
 .preview-sidebar .editor-btn.close-btn {
-    background: var(--bg-primary);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-color);
+    background: var(--error-color);
+    color: #fff;
+    border: 1px solid var(--error-color);
     margin-left: 6px;
 }
 
 .preview-sidebar .editor-btn.close-btn:hover {
-    background: var(--error-color);
-    color: white;
-    border-color: var(--error-color);
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #fff;
 }
 
 .preview-btn:hover {
@@ -2568,4 +2596,36 @@ body {
         font-size: 13px;
         padding: 10px;
     }
+}
+
+/* 覆盖：工具栏极简按钮，确保优先级高于默认preview/editor按钮样式 */
+.toolbar-minimal .preview-btn,
+.toolbar-minimal .editor-btn {
+    background-color: transparent !important;
+    border: none !important;
+    padding: 8px !important;
+    margin: 0 4px !important;
+    border-radius: 6px !important;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    color: #555 !important;
+}
+
+.toolbar-minimal .preview-btn:hover,
+.toolbar-minimal .editor-btn:hover {
+    background-color: var(--bg-hover) !important;
+    color: #007aff !important;
+}
+
+.toolbar-minimal .preview-btn:active,
+.toolbar-minimal .editor-btn:active {
+    background-color: #e0e0e0 !important;
+    transform: scale(0.95);
+}
+
+.toolbar-minimal .preview-btn:disabled,
+.toolbar-minimal .editor-btn:disabled {
+    color: #ccc !important;
+    background-color: transparent !important;
+    cursor: not-allowed;
 }

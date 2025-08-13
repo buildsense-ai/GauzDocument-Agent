@@ -4130,17 +4130,18 @@ window.currentEditingName = '';
 function switchToEditMode() {
     console.log('📝 切换到编辑模式');
     
-    // 检查是否有当前预览的文档
-    if (!currentPreviewTaskId || !window.taskDocuments || !window.taskDocuments[currentPreviewTaskId]) {
-        showNotification('请先预览一个文档再进行编辑', 'warning');
-        return;
+    // 优先从当前预览上下文获取文档信息（若存在）
+    if (currentPreviewTaskId && window.taskDocuments && window.taskDocuments[currentPreviewTaskId]) {
+        const docInfo = window.taskDocuments[currentPreviewTaskId];
+        currentEditingUrl = docInfo.url;
+        currentEditingName = docInfo.name;
+        window.currentEditingName = docInfo.name;
+    } else {
+        // 若没有任务上下文，但已有预览的渲染内容或文件名，也允许进入编辑模式
+        if (!window.currentEditingName || !window.currentEditingName.trim()) {
+            window.currentEditingName = currentEditingName || '未命名文档.md';
+        }
     }
-    
-    const docInfo = window.taskDocuments[currentPreviewTaskId];
-    currentEditingUrl = docInfo.url;
-    currentEditingName = docInfo.name;
-    // 确保window.currentEditingName也被设置，供其他模块使用
-    window.currentEditingName = docInfo.name;
     
     // 更新侧边栏标题和图标
     document.getElementById('sidebarTitleIcon').textContent = '✏️';
@@ -4165,18 +4166,25 @@ function switchToEditMode() {
         document.getElementById('editorStatus').textContent = '已恢复编辑内容';
         updateEditorStats();
         setupSidebarEditorEventListeners();
-    } else if (hasPreviewContent) {
-        // 优先使用最近一次渲染时的原始Markdown，避免从HTML提取导致图片链接丢失
-        console.log('📋 从最近一次渲染的原始Markdown恢复编辑内容');
-        const editor = document.getElementById('markdownEditor');
-        const markdownContent = (typeof lastRenderedMarkdown === 'string' && lastRenderedMarkdown.trim())
-            ? lastRenderedMarkdown
-            : (previewResult.textContent || previewResult.innerText || '');
-        editor.value = markdownContent;
-        currentEditingContent = markdownContent;
-        document.getElementById('editorStatus').textContent = '已从原始Markdown恢复';
-        updateEditorStats();
-        setupSidebarEditorEventListeners();
+	} else if (hasPreviewContent || hasVersionPreview) {
+		// 优先使用最近一次用于渲染预览的原始Markdown，避免从HTML提取导致Markdown语法丢失
+		console.log('📋 从最近一次渲染的原始Markdown恢复编辑内容');
+		const editor = document.getElementById('markdownEditor');
+		const markdownFromLocal = (typeof lastRenderedMarkdown === 'string' && lastRenderedMarkdown.trim()) ? lastRenderedMarkdown : '';
+		const markdownFromWindow = (typeof window !== 'undefined' && typeof window.lastRenderedMarkdown === 'string' && window.lastRenderedMarkdown.trim()) ? window.lastRenderedMarkdown : '';
+		const markdownContent = markdownFromLocal || markdownFromWindow;
+
+		if (markdownContent) {
+			editor.value = markdownContent;
+			currentEditingContent = markdownContent;
+			document.getElementById('editorStatus').textContent = '已从原始Markdown恢复';
+			updateEditorStats();
+			setupSidebarEditorEventListeners();
+		} else {
+			console.log('📥 未记录预览的原始Markdown，尝试加载原始文档内容');
+			document.getElementById('editorStatus').textContent = '正在加载文档内容...';
+			loadDocumentForEditingInSidebar();
+		}
     } else {
         console.log('📥 尝试加载原始文档内容');
         document.getElementById('editorStatus').textContent = '正在加载文档内容...';
@@ -4236,6 +4244,34 @@ function openDocumentEditor() {
 async function loadDocumentForEditingInSidebar() {
     try {
         console.log(`📥 加载文档内容到侧边栏: ${currentEditingUrl}`);
+
+        // 若无可用URL，优先使用最近一次渲染的原始Markdown
+        if (!currentEditingUrl || !currentEditingUrl.trim()) {
+            const editor = document.getElementById('markdownEditor');
+            const markdownFromLocal = (typeof lastRenderedMarkdown === 'string' && lastRenderedMarkdown.trim()) ? lastRenderedMarkdown : '';
+            const markdownFromWindow = (typeof window !== 'undefined' && typeof window.lastRenderedMarkdown === 'string' && window.lastRenderedMarkdown.trim()) ? window.lastRenderedMarkdown : '';
+            const markdownContent = markdownFromLocal || markdownFromWindow;
+
+            if (markdownContent && editor) {
+                editor.value = markdownContent;
+                currentEditingContent = markdownContent;
+                document.getElementById('editorStatus').textContent = '已从预览内容恢复';
+                updateEditorStats();
+                setupSidebarEditorEventListeners();
+                console.log('✅ 无URL，已用最近预览的Markdown恢复编辑内容');
+                return;
+            }
+            // 没有URL也没有预览副本，提供空白模板
+            if (editor) {
+                editor.value = '# 新文档\n\n开始编辑您的内容...';
+                currentEditingContent = editor.value;
+                document.getElementById('editorStatus').textContent = '已创建新的编辑内容';
+                updateEditorStats();
+                setupSidebarEditorEventListeners();
+                console.log('ℹ️ 无URL且无预览副本，已创建空白文档');
+                return;
+            }
+        }
         
         const response = await fetch(currentEditingUrl, {
             method: 'GET',
@@ -4292,9 +4328,23 @@ async function loadDocumentForEditingInSidebar() {
             
             showNotification('原始文档无法访问，已为您创建新的编辑环境', 'info');
         } else {
-            // 其他错误
-            document.getElementById('editorStatus').textContent = `加载失败: ${error.message}`;
-            showNotification('文档内容加载失败', 'error');
+            // 其他错误：尽量回退到最近预览的Markdown
+            const editor = document.getElementById('markdownEditor');
+            const markdownFromLocal = (typeof lastRenderedMarkdown === 'string' && lastRenderedMarkdown.trim()) ? lastRenderedMarkdown : '';
+            const markdownFromWindow = (typeof window !== 'undefined' && typeof window.lastRenderedMarkdown === 'string' && window.lastRenderedMarkdown.trim()) ? window.lastRenderedMarkdown : '';
+            const markdownContent = markdownFromLocal || markdownFromWindow;
+
+            if (markdownContent && editor) {
+                editor.value = markdownContent;
+                currentEditingContent = markdownContent;
+                document.getElementById('editorStatus').textContent = '已从预览内容恢复（网络异常）';
+                updateEditorStats();
+                setupSidebarEditorEventListeners();
+                showNotification('文档内容加载失败，已从预览恢复内容', 'warning');
+            } else {
+                document.getElementById('editorStatus').textContent = `加载失败: ${error.message}`;
+                showNotification('文档内容加载失败', 'error');
+            }
         }
     }
 }
@@ -4400,8 +4450,8 @@ function updatePreviewFromEditor() {
         document.getElementById('previewLoading').style.display = 'none';
         document.getElementById('previewError').style.display = 'none';
         
-        // 🆕 记录渲染用的原始Markdown，供切回编辑模式时使用
-        try { lastRenderedMarkdown = markdownContent; } catch(e) {}
+		// 🆕 记录渲染用的原始Markdown，供切回编辑模式时使用
+		try { lastRenderedMarkdown = markdownContent; window.lastRenderedMarkdown = markdownContent; } catch(e) {}
 
         // 🆕 为预览中的图片补充交互与淡入效果
         setTimeout(() => {
@@ -4551,56 +4601,23 @@ function closeDocumentEditor() {
     console.log('📝 文档编辑器已关闭');
 }
 
-// 插入Markdown模板
-function insertMarkdownTemplate() {
-    const editor = document.getElementById('markdownEditor');
-    const template = `# 文档标题
 
-## 概述
-
-这里是文档的概述内容。
-
-## 主要内容
-
-### 子标题1
-
-- 列表项1
-- 列表项2
-- 列表项3
-
-### 子标题2
-
-**粗体文本** 和 *斜体文本*
-
-\`\`\`
-代码块示例
-\`\`\`
-
-## 结论
-
-这里是结论部分。
-`;
-    
-    // 在当前光标位置插入模板
-    const cursorPos = editor.selectionStart;
-    const currentValue = editor.value;
-    const newValue = currentValue.slice(0, cursorPos) + template + currentValue.slice(cursorPos);
-    
-    editor.value = newValue;
-    editor.focus();
-    
-    // 更新统计
-    updateEditorStats();
-    
-    showNotification('Markdown模板已插入', 'success');
-}
 
 // 下载编辑后的内容
 function downloadEditedContent() {
-    // 优先使用保存的编辑内容，如果没有则从编辑器获取
+    // 优先使用保存的编辑内容
     let content = currentEditingContent;
-    
-    // 如果没有保存的内容，尝试从编辑器获取
+
+    // 若无，则优先使用最近一次用于预览渲染的原始Markdown
+    if (!content || !content.trim()) {
+        if (typeof lastRenderedMarkdown === 'string' && lastRenderedMarkdown.trim()) {
+            content = lastRenderedMarkdown;
+        } else if (typeof window !== 'undefined' && typeof window.lastRenderedMarkdown === 'string' && window.lastRenderedMarkdown.trim()) {
+            content = window.lastRenderedMarkdown;
+        }
+    }
+
+    // 仍无，则尝试从编辑器获取
     if (!content || !content.trim()) {
         const editor = document.getElementById('markdownEditor');
         if (editor && editor.value) {
@@ -4692,13 +4709,6 @@ async function saveEditedDocument() {
         
         console.log('💾 文档已保存到本地存储');
         
-        // 可选：自动下载备份
-        setTimeout(() => {
-            if (confirm('是否同时下载文档备份？')) {
-                downloadEditedContent();
-            }
-        }, 1000);
-        
     } catch (error) {
         console.error('❌ 保存文档失败:', error);
         document.getElementById('editorStatus').textContent = `保存失败: ${error.message}`;
@@ -4753,7 +4763,7 @@ async function previewGeneratedDocument(fileName) {
         
         // 渲染到预览区域
         const previewResult = document.getElementById('previewResult');
-        if (previewResult) {
+    if (previewResult) {
             // 添加版本标识
             const versionHeader = `<div class="version-preview-header">📄 ${fileName} (最新版本)</div>`;
             
@@ -4777,6 +4787,9 @@ async function previewGeneratedDocument(fileName) {
             // 隐藏加载和错误状态
             document.getElementById('previewLoading').style.display = 'none';
             document.getElementById('previewError').style.display = 'none';
+            
+            // 记录最近一次渲染所用的Markdown，供切换编辑和下载使用
+            try { lastRenderedMarkdown = markdownContent; window.lastRenderedMarkdown = markdownContent; } catch (e) {}
         }
         
         // 自动加载版本历史
