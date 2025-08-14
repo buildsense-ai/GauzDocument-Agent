@@ -4158,8 +4158,20 @@ function switchToEditMode() {
     const hasVersionPreview = previewResult && previewResult.innerHTML.includes('version-preview-header');
     const hasPreviewContent = previewResult && previewResult.innerHTML.trim() && !hasVersionPreview;
     
-    // 如果有已编辑的内容，直接使用
-    if (currentEditingContent && currentEditingContent.trim()) {
+    // 如果有已编辑的内容，直接使用（但若刚从版本历史预览进入，则强制使用该版本内容）
+    if (window.fromVersionHistory && typeof window.lastRenderedMarkdown === 'string' && window.lastRenderedMarkdown.trim()) {
+        console.log('🟢 来自版本历史的预览，优先使用该版本Markdown进入编辑');
+        const editor = document.getElementById('markdownEditor');
+        const markdownContent = window.lastRenderedMarkdown;
+        editor.value = markdownContent;
+        currentEditingContent = markdownContent;
+        document.getElementById('editorStatus').textContent = '已从版本历史恢复';
+        updateEditorStats();
+        setupSidebarEditorEventListeners();
+        // 使用后立即清除标记，避免后续误用
+        window.fromVersionHistory = false;
+        return;
+    } else if (currentEditingContent && currentEditingContent.trim()) {
         console.log('🔄 恢复已编辑的内容');
         const editor = document.getElementById('markdownEditor');
         editor.value = currentEditingContent;
@@ -4226,6 +4238,10 @@ function switchToPreviewMode() {
         previewResult.style.display = 'block';
         document.getElementById('previewLoading').style.display = 'none';
         document.getElementById('previewError').style.display = 'none';
+        // 进入预览时，设置标记，后续切到编辑优先用版本内容
+        if (typeof window.lastRenderedMarkdown === 'string' && window.lastRenderedMarkdown.trim()) {
+            window.fromVersionHistory = true;
+        }
     } else if (editor && editor.value) {
         // 如果没有版本预览但有编辑内容，更新预览
         updatePreviewFromEditor();
@@ -4704,10 +4720,23 @@ async function saveEditedDocument() {
             taskId: currentPreviewTaskId
         }));
         
-        document.getElementById('editorStatus').textContent = '文档保存成功';
-        showNotification('文档已保存到本地', 'success');
-        
-        console.log('💾 文档已保存到本地存储');
+        // 追加：保存到云端（创建新版本）
+        try {
+            const cloudResult = await (window.saveEditedToCloud ? window.saveEditedToCloud(currentEditingName || savedFileName, content) : { success: false });
+            if (cloudResult && cloudResult.success) {
+                document.getElementById('editorStatus').textContent = '文档已保存到本地并上传云端';
+                showNotification('文档已保存到本地并上传云端', 'success');
+            } else {
+                document.getElementById('editorStatus').textContent = '本地保存成功；云端保存失败';
+                showNotification('本地保存成功；云端保存失败', 'warning');
+            }
+        } catch (e) {
+            console.warn('⚠️ 云端保存失败:', e);
+            document.getElementById('editorStatus').textContent = '本地保存成功；云端保存异常';
+            showNotification('本地保存成功；云端保存异常', 'warning');
+        }
+
+        console.log('💾 文档已保存到本地存储，并尝试上传云端');
         
     } catch (error) {
         console.error('❌ 保存文档失败:', error);

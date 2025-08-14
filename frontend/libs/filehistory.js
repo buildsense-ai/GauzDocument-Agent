@@ -34,14 +34,14 @@ function replaceToolbarButtons() {
             <button class="preview-btn" name="下一版本" onclick="goForward()" title="下一版本">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12H19"/><path d="M12 5l7 7-7 7"/></svg>
             </button>
-            <button class="preview-btn" onclick="uploadFile()" title="上传当前编辑文档">
+            <button class="preview-btn group-sep" onclick="uploadFile()" title="上传当前编辑文档">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
             </button>
             <button class="preview-btn" onclick="downloadFile()" title="下载当前浏览版本">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12l7 7 7-7"/></svg>
             </button>
-            <button class="preview-btn" onclick="restoreOriginalButtons()" title="恢复原工具栏">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 3v6h6"/></svg>
+            <button class="preview-btn btn-back" onclick="restoreOriginalButtons()" title="恢复原工具栏">
+                <span class="btn-back-text">back</span>
             </button>
             <div class="version-history-container" style="display: none;">
                 <div class="version-timeline">
@@ -280,15 +280,39 @@ function replaceToolbarButtons() {
                 transition: all 0.2s;
             }
             
+             /* 覆盖极简工具栏对 button 的透明样式，确保版本面板按钮可见 */
+             .toolbar-minimal .version-history-container .version-btn {
+                 background: rgba(255, 255, 255, 0.12) !important;
+                 border: 1px solid rgba(255, 255, 255, 0.3) !important;
+                 color: #ffffff !important;
+             }
+
             .version-btn:hover:not(:disabled) {
                 background: rgba(255, 255, 255, 0.2);
                 border-color: rgba(255, 255, 255, 0.5);
             }
+
+             .toolbar-minimal .version-history-container .version-btn:hover:not(:disabled) {
+                 background: rgba(255, 255, 255, 0.2) !important;
+                 border-color: rgba(255, 255, 255, 0.5) !important;
+             }
             
-            .version-btn:disabled {
-                opacity: 0.5;
-                cursor: not-allowed;
-            }
+             .version-btn:disabled {
+                 /* 文字保持清晰可见（白色且不透明） */
+                 opacity: 1;
+                 color: #ffffff;
+                 cursor: not-allowed;
+                 /* 用更浅的背景和边框来表达禁用状态，而不是整体透明 */
+                 background: rgba(255, 255, 255, 0.08);
+                 border-color: rgba(255, 255, 255, 0.25);
+             }
+
+             .toolbar-minimal .version-history-container .version-btn:disabled {
+                 opacity: 1 !important;
+                 color: #ffffff !important;
+                 background: rgba(255, 255, 255, 0.08) !important;
+                 border-color: rgba(255, 255, 255, 0.25) !important;
+             }
             
             .preview-btn[onclick="toggleVersionHistory()"] {
                 position: relative;
@@ -532,7 +556,12 @@ async function loadVersionContentToEditor() {
             previewResult.style.display = 'block';
 
             // 记录最近一次渲染所用的Markdown，供切换编辑和下载使用
-            try { window.lastRenderedMarkdown = content; } catch(e) {}
+            try {
+                window.lastRenderedMarkdown = content;
+                // 标记该预览来自版本历史，以便进入编辑模式时优先使用这份内容
+                window.fromVersionHistory = true;
+                window.versionPreviewFileName = fileName;
+            } catch(e) {}
             
             // 更新预览状态
             const previewStatus = document.getElementById('previewStatus');
@@ -616,6 +645,51 @@ function uploadFile() {
         showNotification(`当前文档上传失败: ${error.message}`, 'error');
     });
 }
+
+// 将编辑器内容直接保存到云端（创建一个新版本）
+async function saveEditedToCloud(fileName, content) {
+	try {
+		// 文件名兜底逻辑
+		let targetName = fileName || (typeof getCurrentFileName === 'function' ? getCurrentFileName() : '未命名文档.md');
+		if (!/\.(md|markdown)$/i.test(targetName)) {
+			targetName = targetName + '.md';
+		}
+
+		if (!content || !content.trim()) {
+			showNotification('当前内容为空，无法保存到云端', 'error');
+			return { success: false, error: 'empty_content' };
+		}
+
+		// 组装上传表单
+		const blob = new Blob([content], { type: 'text/markdown' });
+		const formData = new FormData();
+		formData.append('file', blob, targetName);
+
+		showNotification(`正在保存到云端: ${targetName}`, 'info');
+
+		const resp = await fetch('http://43.139.19.144:8000/api/uploadwithversion', {
+			method: 'POST',
+			body: formData
+		});
+
+		if (!resp.ok) {
+			const msg = `云端保存失败: ${resp.status}`;
+			showNotification(msg, 'error');
+			return { success: false, status: resp.status };
+		}
+
+		const data = await resp.json();
+		showNotification(`云端保存成功，版本ID: ${data.versionId || 'unknown'}`, 'success');
+		return { success: true, data };
+	} catch (err) {
+		console.error('❌ 云端保存异常:', err);
+		showNotification('云端保存异常: ' + err.message, 'error');
+		return { success: false, error: err.message };
+	}
+}
+
+// 暴露全局方法，供编辑器调用
+try { window.saveEditedToCloud = saveEditedToCloud; } catch (e) {}
 
 // 版本历史相关变量
 let versionHistory = [];

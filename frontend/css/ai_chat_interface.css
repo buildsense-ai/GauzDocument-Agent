@@ -1411,6 +1411,20 @@ body {
     flex: 1;
 }
 
+/* 分组视觉：在左右箭头后、上下箭头前增加微分隔
+   仅当替换工具栏启用并给上传按钮标记 .group-sep 时生效 */
+.toolbar-buttons .group-sep {
+	margin-left: 18px; /* 与默认 gap 形成更明显分组 */
+}
+
+/* 覆盖极简模式下的全局 margin: 0 4px !important；
+   使用更具体选择器并对 margin-left 加 !important，
+   仅调整分组左侧间距，不影响其他边距 */
+.toolbar-minimal .toolbar-buttons .group-sep,
+.toolbar-minimal .group-sep {
+	margin-left: 18px !important;
+}
+
 /* 极简工具栏按钮样式 */
 .toolbar-minimal button {
     background-color: transparent;
@@ -2637,4 +2651,19 @@ body {
     color: #ccc !important;
     background-color: transparent !important;
     cursor: not-allowed;
+}
+
+/* 可爱风格的“back”文本按钮（替代返回图标） */
+.toolbar-minimal .btn-back .btn-back-text,
+.preview-sidebar .btn-back .btn-back-text {
+	font-size: 16px; /* 接近24px图标的视觉重量 */
+	font-weight: 700;
+	font-family: "Comic Sans MS", "Comic Sans", "Baloo 2", "Nunito", cursive, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+	letter-spacing: 0.5px;
+	color: var(--text-primary);
+}
+
+.toolbar-minimal .btn-back:hover .btn-back-text,
+.preview-sidebar .btn-back:hover .btn-back-text {
+	color: var(--primary-color);
 }
