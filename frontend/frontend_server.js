@@ -3,11 +3,17 @@ const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const http = require('http');
+const https = require('https');
 
-// 🆕 环境配置 - ReactAgent后端地址
+// 🆕 环境配置 - ReactAgent后端地址、PDF服务、MinIO静态访问地址
 const REACT_AGENT_URL = process.env.REACT_AGENT_URL || 'http://127.0.0.1:8000';
+const PDF_API_BASE = process.env.PDF_API_BASE || 'http://43.139.19.144:8001';
+const MINIO_HTTP_BASE = process.env.MINIO_HTTP_BASE || 'http://43.139.19.144:9000';
 
 console.log(`🔗 ReactAgent后端地址: ${REACT_AGENT_URL}`);
+console.log(`🔗 PDF服务地址: ${PDF_API_BASE}`);
+console.log(`🔗 MinIO静态访问地址: ${MINIO_HTTP_BASE}`);
 
 const app = express();
 const PORT = process.env.PORT || 3003;
@@ -44,7 +50,8 @@ const storage = multer.diskStorage({
 const upload = multer({
     storage: storage,
     limits: {
-        fileSize: Infinity // 移除文件大小限制
+        // 将文件大小限制提升到200MB，避免无限制带来的意外行为
+        fileSize: 200 * 1024 * 1024
     },
     fileFilter: (req, file, cb) => {
         // 接受常见文档格式
@@ -76,6 +83,66 @@ app.use(express.json({ limit: '50mb' }));
 // 静态文件服务
 app.use(express.static(__dirname));
 
+// 🆕 管理端静态页面路由（/admin）
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'admin.html'));
+});
+
+// 🆕 代理登录到后端 /auth/login（前端登录页直接调用该路由）
+app.post('/auth/login', async (req, res) => {
+    try {
+        const upstream = await fetch(`${REACT_AGENT_URL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(req.body || {})
+        });
+        const data = await upstream.json();
+        res.status(upstream.status).json(data);
+    } catch (e) {
+        res.status(500).json({ detail: e.message || '登录代理失败' });
+    }
+});
+
+// 🆕 管理端API：创建用户（仅演示；生产应由8000鉴权，这里只做转发示例）
+app.post('/api/admin/users', async (req, res) => {
+    try {
+        const { username, password, email } = req.body || {};
+        if (!username || !password) {
+            return res.status(400).json({ success: false, error: '用户名与密码必填' });
+        }
+        const auth = req.headers['authorization'] || '';
+        if (!auth) return res.status(401).json({ success: false, error: '未登录' });
+        const upstream = await fetch(`${REACT_AGENT_URL}/admin/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': auth },
+            body: JSON.stringify({ username, password, email })
+        });
+        const data = await upstream.json();
+        return res.status(upstream.status).json(data);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// 🆕 管理端API：给项目添加成员（owner权限，转发到8000）
+app.post('/api/admin/projects/:projectId/members', async (req, res) => {
+    try {
+        const { projectId } = req.params;
+        const { username, role } = req.body || {};
+        const auth = req.headers['authorization'] || '';
+        if (!auth) return res.status(401).json({ success: false, error: '未登录' });
+        const upstream = await fetch(`${REACT_AGENT_URL}/api/projects/${encodeURIComponent(projectId)}/members`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': auth },
+            body: JSON.stringify({ username, role })
+        });
+        const data = await upstream.json();
+        return res.status(upstream.status).json(data);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // 文件上传API - 转发到后端MinIO服务
 app.post('/api/upload', upload.single('file'), async (req, res) => {
     try {
@@ -100,6 +167,8 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
         const axios = require('axios');
         const FormData = require('form-data');
         const fs = require('fs');
+        const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 100 });
+        const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 100 });
 
         // 创建新的FormData，包含文件和项目信息
         const formData = new FormData();
@@ -121,7 +190,9 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
             },
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
-            timeout: 120000  // 增加到120秒超时，支持大文件上传
+            timeout: 600000, // 10分钟
+            httpAgent,
+            httpsAgent
         });
 
         console.log(`📡 后端MinIO API响应状态: ${backendResponse.status}`);
@@ -554,7 +625,10 @@ app.get('/api/tools', async (req, res) => {
 app.get('/api/projects', async (req, res) => {
     try {
         console.log('📋 代理项目列表请求');
-        const response = await fetch('http://127.0.0.1:8000/api/projects');
+        const auth = req.headers['authorization'] || '';
+        const response = await fetch('http://127.0.0.1:8000/api/projects', {
+            headers: auth ? { 'Authorization': auth } : {}
+        });
 
 
         if (!response.ok) {
@@ -576,11 +650,13 @@ app.get('/api/projects', async (req, res) => {
 app.post('/api/projects', async (req, res) => {
     try {
         console.log('📋 代理创建项目请求:', req.body);
+        const auth = req.headers['authorization'] || '';
         const response = await fetch('http://127.0.0.1:8000/api/projects', {
 
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...(auth ? { 'Authorization': auth } : {})
             },
             body: JSON.stringify(req.body)
         });
@@ -610,7 +686,8 @@ app.get('/api/projects/:identifier/summary', async (req, res) => {
 
         const url = `http://127.0.0.1:8000/api/projects/${encodeURIComponent(identifier)}/summary?by_name=${by_name || 'false'}`;
 
-        const response = await fetch(url);
+        const auth = req.headers['authorization'] || '';
+        const response = await fetch(url, { headers: auth ? { 'Authorization': auth } : {} });
 
         if (!response.ok) {
             throw new Error(`获取项目概要失败: ${response.status}`);
@@ -635,7 +712,8 @@ app.get('/api/projects/:identifier/current-session', async (req, res) => {
 
         const url = `http://127.0.0.1:8000/api/projects/${encodeURIComponent(identifier)}/current-session?by_name=${by_name || 'false'}&limit=${limit || '20'}`;
 
-        const response = await fetch(url);
+        const auth = req.headers['authorization'] || '';
+        const response = await fetch(url, { headers: auth ? { 'Authorization': auth } : {} });
 
         if (!response.ok) {
             throw new Error(`获取当前会话失败: ${response.status}`);
@@ -665,10 +743,12 @@ app.post('/api/projects/:identifier/messages', async (req, res) => {
             `http://127.0.0.1:8000/api/projects/by-name/${encodeURIComponent(identifier)}/messages` :
             `http://127.0.0.1:8000/api/projects/${encodeURIComponent(identifier)}/messages`;
 
+        const auth = req.headers['authorization'] || '';
         const response = await fetch(baseUrl, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...(auth ? { 'Authorization': auth } : {})
             },
             body: JSON.stringify({
                 session_id,
@@ -710,8 +790,10 @@ app.delete('/api/projects/:identifier', async (req, res) => {
 
         const url = `http://127.0.0.1:8000/api/projects/${encodeURIComponent(identifier)}?by_name=${by_name || 'false'}`;
 
+        const auth = req.headers['authorization'] || '';
         const response = await fetch(url, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: auth ? { 'Authorization': auth } : {}
         });
 
         if (!response.ok) {
@@ -741,7 +823,8 @@ app.get('/api/projects/:identifier/files', async (req, res) => {
 
         console.log(`🔗 代理文件列表请求到后端: ${url}`);
 
-        const response = await fetch(url);
+        const auth = req.headers['authorization'] || '';
+        const response = await fetch(url, { headers: auth ? { 'Authorization': auth } : {} });
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -759,6 +842,52 @@ app.get('/api/projects/:identifier/files', async (req, res) => {
             total: 0,
             error: error.message || '无法获取文件列表'
         });
+    }
+});
+
+// 🆕 直接对接PDF处理服务（8001）：将 minio_path 转换为 HTTP URL 并转发
+app.post('/api/pdf/process', async (req, res) => {
+    try {
+        const { minio_path, project_name } = req.body || {};
+
+        if (!minio_path) {
+            return res.status(400).json({ success: false, error: '缺少 minio_path' });
+        }
+
+        // 支持两种格式：minio://bucket/object 或 直接 object path
+        let httpUrl;
+        if (typeof minio_path === 'string' && minio_path.startsWith('minio://')) {
+            const pathWithoutPrefix = minio_path.replace('minio://', '');
+            httpUrl = `${MINIO_HTTP_BASE}/${pathWithoutPrefix}`;
+        } else {
+            // 假设传入的是 bucket/object 形式
+            httpUrl = `${MINIO_HTTP_BASE}/${minio_path}`;
+        }
+
+        const payload = {
+            minio_url: httpUrl,
+            project_name: project_name || null
+        };
+
+        console.log('🧩 转发PDF处理到8001:', payload);
+
+        const response = await fetch(`${PDF_API_BASE}/api/v1/process_pdf`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`PDF处理失败: ${response.status} - ${text}`);
+        }
+
+        const data = await response.json();
+        res.json({ success: true, data });
+
+    } catch (error) {
+        console.error('❌ PDF处理代理错误:', error);
+        res.status(500).json({ success: false, error: error.message || 'PDF处理失败' });
     }
 });
 

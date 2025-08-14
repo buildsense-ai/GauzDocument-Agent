@@ -95,6 +95,17 @@
                     <div style="color: var(--text-tertiary); font-size: 12px; text-align: center; padding: 20px;">
                         通过对话框📎按钮上传文件后，文件将在此显示
                     </div>
+                    <!-- 🆕 左侧直连PDF处理面板 -->
+                    <div class="pdf-direct-panel" style="margin:12px; padding:12px; border:1px solid var(--border-color); border-radius:8px;">
+                        <div style="font-weight:600; margin-bottom:8px;">🧩 PDF 直连处理</div>
+                        <div style="font-size:12px; color:var(--text-secondary); margin-bottom:8px;">输入 MinIO 路径（minio://bucket/object.pdf），或从项目文件列表选择后粘贴：</div>
+                        <input id="pdfMinioPathInput" type="text" placeholder="minio://bucket/object.pdf" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:6px;" />
+                        <div style="display:flex; gap:8px; margin-top:8px;">
+                            <button class="preview-btn" onclick="triggerPdfProcess()">解析PDF</button>
+                            <button class="preview-btn" onclick="fillLatestProjectPdf()">填充最近上传</button>
+                        </div>
+                        <div id="pdfDirectStatus" style="font-size:12px; color:var(--text-secondary); margin-top:8px;"></div>
+                    </div>
                 </div>
             </div>
 

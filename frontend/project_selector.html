@@ -865,10 +865,12 @@
             const projectDesc = prompt('请输入项目描述:') || '新建工程项目';
 
             try {
+                const token = localStorage.getItem('access_token');
                 const response = await fetch('/api/projects', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
                     },
                     body: JSON.stringify({
                         name: projectName,
@@ -903,8 +905,12 @@
             }
 
             try {
-                const response = await fetch(`/api/projects/${projectId}`, {
-                    method: 'DELETE'
+                const token = localStorage.getItem('access_token');
+                const response = await fetch(`/api/projects/${projectId}` , {
+                    method: 'DELETE',
+                    headers: {
+                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                    }
                 });
 
                 const result = await response.json();
@@ -927,7 +933,12 @@
             const projectsGrid = document.getElementById('projectsGrid');
 
             try {
-                const response = await fetch('/api/projects');
+                const token = localStorage.getItem('access_token');
+                const response = await fetch('/api/projects', {
+                    headers: {
+                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                    }
+                });
                 const result = await response.json();
 
                 if (result.success && result.projects) {
@@ -1143,22 +1154,14 @@
 
         // 🔐 检查登录状态
         function checkLoginStatus() {
-            const isLoggedIn = localStorage.getItem('isLoggedIn');
+            const token = localStorage.getItem('access_token');
             const username = localStorage.getItem('username');
-            
-            if (!isLoggedIn || isLoggedIn !== 'true') {
-                // 未登录，跳转到登录页面
+            if (!token) {
                 window.location.href = '/';
                 return;
             }
-            
-            // 更新用户名显示
-            if (username) {
-                const usernameElement = document.getElementById('username');
-                if (usernameElement) {
-                    usernameElement.textContent = username;
-                }
-            }
+            const usernameElement = document.getElementById('username');
+            if (usernameElement && username) usernameElement.textContent = username;
         }
 
         // 页面加载时检查登录状态

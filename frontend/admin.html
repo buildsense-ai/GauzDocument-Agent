@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理端 - 账号与成员</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f6f7fb; }
+        .container { max-width: 1000px; margin: 24px auto; padding: 0 16px; }
+        .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+        .title { font-size: 18px; font-weight: 600; margin-bottom: 12px; }
+        .row { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+        input, select { padding: 8px; border: 1px solid #e5e7eb; border-radius: 6px; }
+        button { padding: 8px 12px; border: 1px solid #e5e7eb; background: #4f46e5; color: #fff; border-radius: 6px; cursor: pointer; }
+        button.secondary { background: #10b981; }
+        .note { font-size: 12px; color: #6b7280; margin-top: 6px; }
+        .status { font-size: 12px; color: #374151; margin-top: 6px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="title">🔐 管理员登录状态</div>
+            <div id="authStatus" class="status">未检测</div>
+            <div class="note">该页面会将浏览器 localStorage 中的 access_token 作为 Authorization 头使用。</div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <div class="title">👤 创建用户</div>
+                <div class="row">
+                    <input id="newUsername" placeholder="用户名" />
+                    <input id="newPassword" placeholder="密码" type="password" />
+                    <input id="newEmail" placeholder="邮箱（可选）" />
+                </div>
+                <button onclick="createUserDemo()">创建</button>
+                <div class="note">需要管理员权限。请先在登录页使用管理员账号登录。</div>
+                <div id="userCreateStatus" class="status"></div>
+            </div>
+
+            <div class="card">
+                <div class="title">👥 给项目添加成员</div>
+                <div class="row">
+                    <input id="projectId" placeholder="项目ID" />
+                </div>
+                <div class="row">
+                    <input id="memberUsername" placeholder="用户名" />
+                    <select id="memberRole">
+                        <option value="viewer">viewer</option>
+                        <option value="editor">editor</option>
+                        <option value="owner">owner</option>
+                    </select>
+                </div>
+                <button class="secondary" onclick="addMember()">添加成员</button>
+                <div id="memberStatus" class="status"></div>
+                <div class="note">仅项目 owner 可操作。该操作会通过 3003 代理转发到 8000 的成员接口。</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function getAuthHeader() {
+            const token = localStorage.getItem('access_token');
+            return token ? { 'Authorization': `Bearer ${token}` } : {};
+        }
+
+        (function init() {
+            const token = localStorage.getItem('access_token');
+            const s = document.getElementById('authStatus');
+            if (!token) {
+                s.textContent = '未检测到 access_token，正在跳转到登录页...';
+                setTimeout(() => { window.location.href = '/'; }, 500);
+                return;
+            }
+            s.textContent = '已检测到 access_token，将用于调用后台接口';
+        })();
+
+        async function createUserDemo() {
+            const username = document.getElementById('newUsername').value.trim();
+            const password = document.getElementById('newPassword').value.trim();
+            const email = document.getElementById('newEmail').value.trim();
+            const st = document.getElementById('userCreateStatus');
+            st.textContent = '⏳ 提交中...';
+            try {
+                const resp = await fetch('/api/admin/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+                    body: JSON.stringify({ username, password, email })
+                });
+                const data = await resp.json();
+                st.textContent = (resp.ok && data.success) ? '✅ 创建成功' : `❌ ${data.error || '失败'}`;
+            } catch (e) {
+                st.textContent = `❌ ${e.message}`;
+            }
+        }
+
+        async function addMember() {
+            const projectId = document.getElementById('projectId').value.trim();
+            const username = document.getElementById('memberUsername').value.trim();
+            const role = document.getElementById('memberRole').value;
+            const st = document.getElementById('memberStatus');
+            st.textContent = '⏳ 提交中...';
+            try {
+                const resp = await fetch(`/api/admin/projects/${encodeURIComponent(projectId)}/members`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+                    body: JSON.stringify({ username, role })
+                });
+                const data = await resp.json();
+                st.textContent = (resp.ok && data.success) ? '✅ 添加成功' : `❌ ${data.error || '失败'}`;
+            } catch (e) {
+                st.textContent = `❌ ${e.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
+
+

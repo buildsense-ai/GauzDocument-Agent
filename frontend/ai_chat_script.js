@@ -40,6 +40,14 @@ async function apiRequest(url, options = {}) {
         headers['Content-Type'] = 'application/json';
     }
 
+    // 鉴权：从localStorage附加JWT
+    try {
+        const token = localStorage.getItem('access_token');
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+    } catch (e) {}
+
     // 🆕 如果有当前项目，添加项目ID和名称到请求头
     if (currentProject && (currentProject.id || currentProject.name)) {
         if (currentProject.id) {
@@ -58,6 +66,66 @@ async function apiRequest(url, options = {}) {
         ...options,
         headers
     });
+}
+
+// 🆕 触发左侧直连PDF处理
+async function triggerPdfProcess() {
+    const input = document.getElementById('pdfMinioPathInput');
+    const statusEl = document.getElementById('pdfDirectStatus');
+    const minioPath = (input?.value || '').trim();
+    if (!minioPath) {
+        statusEl.textContent = '请输入 minio://bucket/object.pdf 路径';
+        return;
+    }
+    statusEl.textContent = '⏳ 正在处理 PDF...';
+    try {
+        const body = { minio_path: minioPath, project_name: currentProject?.name || null };
+        const resp = await apiRequest(`${API_BASE}/pdf/process`, {
+            method: 'POST',
+            body: JSON.stringify(body)
+        });
+        if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(`PDF处理失败: ${resp.status} - ${text}`);
+        }
+        const data = await resp.json();
+        statusEl.textContent = '✅ 处理完成';
+        // 将结果以一条AI消息追加到对话区，便于查看
+        const resultText = 'PDF解析结果:\n\n' + '```json\n' + JSON.stringify(data.data || data, null, 2) + '\n```';
+        addMessage('ai', resultText);
+    } catch (e) {
+        statusEl.textContent = `❌ 处理失败: ${e.message}`;
+    }
+}
+
+// 🆕 从项目文件列表填充最近上传的minio_path（简化：调用项目文件列表API并取第一项）
+async function fillLatestProjectPdf() {
+    const statusEl = document.getElementById('pdfDirectStatus');
+    try {
+        if (!currentProject || (!currentProject.id && !currentProject.name)) {
+            statusEl.textContent = '请先锁定项目后再使用';
+            return;
+        }
+        const identifier = currentProject.name || currentProject.id;
+        const byName = currentProject.name ? 'true' : 'false';
+        const resp = await fetch(`${API_BASE}/projects/${encodeURIComponent(identifier)}/files?by_name=${byName}`);
+        if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(`获取文件列表失败: ${resp.status} - ${text}`);
+        }
+        const data = await resp.json();
+        const files = data.files || data || [];
+        const latest = Array.isArray(files) ? files.find(f => (f.minio_path || '').toLowerCase().endsWith('.pdf')) || files[0] : null;
+        if (!latest || !latest.minio_path) {
+            statusEl.textContent = '未找到可用的PDF文件';
+            return;
+        }
+        const input = document.getElementById('pdfMinioPathInput');
+        input.value = latest.minio_path;
+        statusEl.textContent = '✅ 已填充最近上传的PDF路径';
+    } catch (e) {
+        statusEl.textContent = `❌ 获取失败: ${e.message}`;
+    }
 }
 
 // 初始化应用
@@ -841,12 +909,12 @@ function checkUploadTimeout() {
         const elapsed = Date.now() - uploadStartTime;
 
         // 30秒警告，60秒强制重置
-        if (elapsed > 60000) { // 60秒超时
+        if (elapsed > 6000000) { // 60秒超时
             console.error('❌ 上传严重超时（60秒），强制重置状态');
             console.error('可能原因：网络请求卡住、后端API无响应、或前端异常');
             resetUploadStatus();
             showNotification('上传严重超时，已强制重置', 'error');
-        } else if (elapsed > 30000) { // 30秒警告
+        } else if (elapsed > 3000000) { // 30秒警告
             console.warn('⚠️ 上传时间较长（30秒+），请检查网络连接');
             console.warn('当前状态：isUploading =', isUploading, '阶段：', uploadPhase, '已用时：', Math.round(elapsed / 1000), '秒');
         }
