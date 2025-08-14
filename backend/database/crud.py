@@ -11,10 +11,59 @@ from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, asc, func, and_, or_
 from . import models
+from .account_models import AccountUser
 import logging
 import re
 
 logger = logging.getLogger(__name__)
+
+# ======================== 账户相关操作 ========================
+
+def create_user(db: Session, username: str, password_hash: str, email: Optional[str] = None) -> AccountUser:
+    user = AccountUser(username=username, password_hash=password_hash, email=email, status="active")
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+def get_user_by_username(db: Session, username: str) -> Optional[AccountUser]:
+    return db.query(AccountUser).filter(AccountUser.username == username).first()
+
+def get_user_by_id(db: Session, user_id: str) -> Optional[AccountUser]:
+    return db.query(AccountUser).filter(AccountUser.id == user_id).first()
+
+# ======================== 项目成员相关操作 ========================
+
+def add_project_member(db: Session, project_id: str, user_id: str, role: str, invited_by: Optional[str] = None) -> models.ProjectMember:
+    member = models.ProjectMember(project_id=project_id, user_id=user_id, role=role, invited_by=invited_by)
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+    return member
+
+def get_project_member(db: Session, project_id: str, user_id: str) -> Optional[models.ProjectMember]:
+    return db.query(models.ProjectMember).filter(
+        and_(models.ProjectMember.project_id == project_id, models.ProjectMember.user_id == user_id)
+    ).first()
+
+def list_project_members(db: Session, project_id: str) -> List[models.ProjectMember]:
+    return db.query(models.ProjectMember).filter(models.ProjectMember.project_id == project_id).order_by(models.ProjectMember.created_at.asc()).all()
+
+def update_project_member_role(db: Session, project_id: str, user_id: str, role: str) -> bool:
+    member = get_project_member(db, project_id, user_id)
+    if not member:
+        return False
+    member.role = role
+    db.commit()
+    return True
+
+def remove_project_member(db: Session, project_id: str, user_id: str) -> bool:
+    member = get_project_member(db, project_id, user_id)
+    if not member:
+        return False
+    db.delete(member)
+    db.commit()
+    return True
 
 # ======================== 项目相关操作 ========================
 

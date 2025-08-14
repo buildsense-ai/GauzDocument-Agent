@@ -48,7 +48,14 @@ from sqlalchemy.orm import Session
 # 🆕 导入路由模块
 from routers import ai_editor, upload_with_version
 # === 简易鉴权（JWT）与项目成员检查 ===
-import jwt
+# 兼容环境中存在错误的 jwt 包（非 PyJWT）时的回退方案
+try:
+    import jwt as jwt_lib  # 期望为 PyJWT
+    if not hasattr(jwt_lib, "encode"):
+        raise ImportError("Invalid jwt module without encode")
+except Exception:
+    from jose import jwt as jwt_lib  # 回退到 python-jose
+
 from passlib.hash import bcrypt
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev_secret_change_me")
@@ -80,7 +87,7 @@ class CreateUserResponse(BaseModel):
     error: Optional[str] = None
 
 def create_token(data: dict) -> str:
-    return jwt.encode(data, JWT_SECRET, algorithm=JWT_ALG)
+    return jwt_lib.encode(data, JWT_SECRET, algorithm=JWT_ALG)
 
 def get_current_user(request: Request, db: Session) -> Optional[str]:
     auth = request.headers.get("Authorization")
@@ -88,7 +95,7 @@ def get_current_user(request: Request, db: Session) -> Optional[str]:
         return None
     token = auth.split(" ", 1)[1]
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+        payload = jwt_lib.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
         return payload.get("user_id")
     except Exception:
         return None

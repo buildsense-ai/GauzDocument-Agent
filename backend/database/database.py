@@ -31,7 +31,7 @@ DATABASE_URL = f"mysql+pymysql://{MYSQL_USER}:{encoded_password}@{MYSQL_HOST}:{M
 
 logger.info(f"数据库连接信息: {MYSQL_USER}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}")
 
-# 创建数据库引擎
+# 创建业务数据库引擎
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,           # 连接池预检
@@ -45,15 +45,48 @@ engine = create_engine(
     }
 )
 
-# 数据库会话工厂
+# 数据库会话工厂（业务库）
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine
 )
 
-# ORM基类
+# ORM基类（业务库）
 Base = declarative_base()
+
+# ======================== 账户库（独立连接） ========================
+# 使用独立的环境变量前缀，避免与业务库冲突
+ACCOUNTS_HOST = os.getenv("ACCOUNTS_MYSQL_HOST", os.getenv("MYSQL_HOST", "localhost"))
+ACCOUNTS_PORT = int(os.getenv("ACCOUNTS_MYSQL_PORT", os.getenv("MYSQL_PORT", "3306")))
+ACCOUNTS_USER = os.getenv("ACCOUNTS_MYSQL_USER", os.getenv("MYSQL_USER", "root"))
+ACCOUNTS_PASSWORD = os.getenv("ACCOUNTS_MYSQL_PASSWORD", os.getenv("MYSQL_PASSWORD", ""))
+ACCOUNTS_DATABASE = os.getenv("ACCOUNTS_MYSQL_DATABASE", os.getenv("ACCOUNTS_DATABASE", "accounts"))
+
+encoded_accounts_pwd = urllib.parse.quote_plus(ACCOUNTS_PASSWORD)
+ACCOUNTS_DATABASE_URL = f"mysql+pymysql://{ACCOUNTS_USER}:{encoded_accounts_pwd}@{ACCOUNTS_HOST}:{ACCOUNTS_PORT}/{ACCOUNTS_DATABASE}"
+
+accounts_engine = create_engine(
+    ACCOUNTS_DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    pool_size=MYSQL_POOL_SIZE,
+    max_overflow=MYSQL_MAX_OVERFLOW,
+    echo=False,
+    connect_args={
+        "charset": MYSQL_CHARSET,
+        "init_command": "SET sql_mode='STRICT_TRANS_TABLES'"
+    }
+)
+
+from .account_models import AccountsBase
+
+# 账户库会话工厂
+SessionLocalAccounts = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=accounts_engine
+)
 
 def get_db():
     """获取数据库会话"""
@@ -62,6 +95,18 @@ def get_db():
         yield db
     except Exception as e:
         logger.error(f"数据库会话错误: {e}")
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+def get_accounts_db():
+    """获取账户库数据库会话"""
+    db = SessionLocalAccounts()
+    try:
+        yield db
+    except Exception as e:
+        logger.error(f"账户数据库会话错误: {e}")
         db.rollback()
         raise
     finally:

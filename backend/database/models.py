@@ -11,6 +11,29 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.mysql import LONGTEXT, JSON as MySQL_JSON
 from .database import Base
 
+class User(Base):
+    """用户账号模型"""
+    __tablename__ = "users"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    username = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    email = Column(String(255))
+    status = Column(String(50), default="active", index=True)  # active/disabled/admin
+
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "username": self.username,
+            "email": self.email,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
 class Project(Base):
     """项目模型 - 支持快速列表显示"""
     __tablename__ = "projects"
@@ -209,3 +232,24 @@ Index('idx_messages_session_index', ChatMessage.session_id, ChatMessage.message_
 Index('idx_files_project_time', ProjectFile.project_id, ProjectFile.uploaded_at)
 Index('idx_sessions_project_active', ChatSession.project_id, ChatSession.last_message_at)
 Index('idx_projects_active_time', Project.status, Project.last_active_at) 
+
+class ProjectMember(Base):
+    """项目成员模型 - 记录用户在项目中的角色"""
+    __tablename__ = "project_members"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    role = Column(String(20), default="viewer", index=True)  # owner/editor/viewer
+    invited_by = Column(String(36))
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "user_id": self.user_id,
+            "role": self.role,
+            "invited_by": self.invited_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

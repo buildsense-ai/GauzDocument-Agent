@@ -3,8 +3,8 @@
 提供MySQL数据库连接和ORM模型
 """
 
-from .database import SessionLocal, engine, get_db
-from .models import Project, ChatSession, ChatMessage, ProjectFile
+from .database import SessionLocal, engine, get_db, SessionLocalAccounts
+from .models import Project, ChatSession, ChatMessage, ProjectFile, User, ProjectMember
 
 __all__ = [
     "SessionLocal", 
@@ -13,5 +13,7 @@ __all__ = [
     "Project", 
     "ChatSession", 
     "ChatMessage", 
-    "ProjectFile"
+    "ProjectFile",
+    "User",
+    "ProjectMember"
 ] 
