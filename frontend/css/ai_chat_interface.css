@@ -1492,7 +1492,7 @@ body {
     background: #fff;
     color: var(--text-secondary);
     border-color: var(--border-color);
-    margin-left: 6px;
+    margin-left: 500px;
 }
 
 /* 放大工具栏关闭按钮的“×”字号，提升可见性 */
@@ -1536,7 +1536,21 @@ body {
     background: #fff;
     color: var(--text-secondary);
     border: 1px solid var(--border-color);
-    margin-left: 6px;
+    margin-left: 500px;
+}
+
+/* 仅放大“编辑模式”工具栏里的关闭按钮（不影响其他位置的关闭按钮） */
+.preview-sidebar .editor-toolbar .editor-btn.close-btn {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.preview-sidebar .editor-toolbar .editor-btn.close-btn span {
+    font-size: 20px;
+    line-height: 1;
 }
 
 .preview-sidebar .editor-btn.close-btn:hover {
