@@ -1495,20 +1495,21 @@ body {
 }
 
 .preview-sidebar .close-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--bg-primary);
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-size: 18px;
-    transition: all 0.2s ease;
-    flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	/* 统一为与 .preview-btn 相同的尺寸与内边距 */
+	width: auto;
+	height: auto;
+	padding: 6px 10px;
+	border: 1px solid var(--border-color);
+	border-radius: 4px;
+	background: var(--bg-primary);
+	color: var(--text-secondary);
+	cursor: pointer;
+	font-size: 18px;
+	transition: all 0.2s ease;
+	flex-shrink: 0;
 }
 
 .preview-sidebar .close-btn:hover {
