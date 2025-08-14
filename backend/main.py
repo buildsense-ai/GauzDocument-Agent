@@ -33,10 +33,13 @@ from thought_logger import get_thought_data, clear_thought_queue, setup_thought_
 
 # 🆕 导入数据库组件
 from database import get_db, Project, ChatSession, ChatMessage, ProjectFile
+from database.database import get_accounts_db, SessionLocalAccounts
 from database.crud import (
     create_project, get_project, get_all_projects, get_project_summary, update_project_stats,
     delete_project, get_current_session, create_new_session, save_message, get_session_messages,
-    get_recent_messages, save_file_record, get_project_files, update_file_minio_path, get_project_by_name
+    get_recent_messages, save_file_record, get_project_files, update_file_minio_path, get_project_by_name,
+    create_user, get_user_by_username, add_project_member, get_project_member, list_project_members,
+    update_project_member_role, remove_project_member
 )
 from database.utils import setup_database, check_database_health
 from fastapi import Depends
@@ -44,6 +47,84 @@ from sqlalchemy.orm import Session
 
 # 🆕 导入路由模块
 from routers import ai_editor, upload_with_version
+# === 简易鉴权（JWT）与项目成员检查 ===
+import jwt
+from passlib.hash import bcrypt
+
+JWT_SECRET = os.getenv("JWT_SECRET", "dev_secret_change_me")
+JWT_ALG = "HS256"
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+class MemberAddRequest(BaseModel):
+    username: str
+    role: str  # owner/editor/viewer
+
+class MemberRoleUpdateRequest(BaseModel):
+    role: str
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    email: Optional[str] = None
+
+class CreateUserResponse(BaseModel):
+    success: bool
+    user: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+def create_token(data: dict) -> str:
+    return jwt.encode(data, JWT_SECRET, algorithm=JWT_ALG)
+
+def get_current_user(request: Request, db: Session) -> Optional[str]:
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.lower().startswith("bearer "):
+        return None
+    token = auth.split(" ", 1)[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+        return payload.get("user_id")
+    except Exception:
+        return None
+
+def ensure_membership(db: Session, project_id: Optional[str], project_name: Optional[str], user_id: str, required_roles: List[str] = None):
+    from database.crud import get_project_by_name
+    from database.crud import get_project_member
+    if not (project_id or project_name):
+        raise HTTPException(status_code=400, detail="缺少项目标识")
+    if project_name and not project_id:
+        proj = get_project_by_name(db, project_name)
+        if not proj:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        project_id = proj.id
+    member = get_project_member(db, project_id, user_id)
+    if not member:
+        raise HTTPException(status_code=403, detail="无权访问该项目")
+    if required_roles and member.role not in required_roles:
+        raise HTTPException(status_code=403, detail="权限不足")
+    return project_id
+
+def user_is_admin(user_id: str) -> bool:
+    try:
+        from database.crud import get_user_by_id
+        db = SessionLocalAccounts()
+        try:
+            u = get_user_by_id(db, user_id)
+            if not u:
+                return False
+            admin_name = os.getenv("ADMIN_USERNAME", "admin")
+            return (u.username == admin_name) or (getattr(u, 'status', '') == 'admin')
+        finally:
+            db.close()
+    except Exception:
+        return False
+
 
 # 全局会话管理
 active_sessions: Dict[str, Dict[str, Any]] = {}
@@ -119,9 +200,14 @@ from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response
 
 class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, max_size: int = 50 * 1024 * 1024):  # 50MB
+    def __init__(self, app, max_size: int = None):
         super().__init__(app)
-        self.max_size = max_size
+        # 允许通过环境变量覆盖，默认200MB
+        try:
+            env_limit = os.getenv("MAX_REQUEST_SIZE_MB")
+            self.max_size = int(env_limit) * 1024 * 1024 if env_limit else (max_size or 200 * 1024 * 1024)
+        except Exception:
+            self.max_size = max_size or 200 * 1024 * 1024
 
     async def dispatch(self, request: StarletteRequest, call_next):
         # 检查Content-Length头
@@ -133,8 +219,8 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
             )
         return await call_next(request)
 
-# 添加请求大小限制中间件
-app.add_middleware(RequestSizeLimitMiddleware, max_size=50 * 1024 * 1024)  # 50MB限制
+# 添加请求大小限制中间件（默认200MB，可用MAX_REQUEST_SIZE_MB覆盖）
+app.add_middleware(RequestSizeLimitMiddleware)
 
 # 添加CORS中间件
 app.add_middleware(
@@ -202,7 +288,114 @@ async def startup_event():
     except Exception as e:
         print(f"❌ 数据库初始化错误: {e}")
     
+    # 创建默认管理员账号（仅用于初始化/演示）
+    try:
+        db = SessionLocalAccounts()
+        try:
+            admin_user = get_user_by_username(db, os.getenv("ADMIN_USERNAME", "admin"))
+            if not admin_user:
+                default_username = os.getenv("ADMIN_USERNAME", "admin")
+                default_password = os.getenv("ADMIN_PASSWORD", "Aa@123456")
+                pwd_hash = bcrypt.hash(default_password)
+                admin_user = create_user(db, default_username, pwd_hash)
+                print(f"👤 已创建默认管理员: {default_username}")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"⚠️ 默认管理员创建失败（可忽略）: {e}")
+
     print("🎉 ReactAgent API服务启动完成！")
+
+@app.post("/auth/login", response_model=LoginResponse)
+async def auth_login(body: LoginRequest, db: Session = Depends(get_accounts_db)):
+    user = get_user_by_username(db, body.username)
+    if not user or not bcrypt.verify(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    token = create_token({"user_id": user.id, "username": user.username})
+    return LoginResponse(access_token=token)
+
+@app.get("/auth/me")
+async def auth_me(request: Request, db: Session = Depends(get_accounts_db)):
+    user_id = get_current_user(request, db)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="未登录")
+    # 仅返回基本信息
+    return {"user_id": user_id}
+
+@app.post("/admin/users", response_model=CreateUserResponse)
+async def admin_create_user(body: CreateUserRequest, request: Request, db: Session = Depends(get_accounts_db)):
+    try:
+        caller_id = get_current_user(request, db)
+        if not caller_id:
+            raise HTTPException(status_code=401, detail="未登录")
+        if not user_is_admin(caller_id):
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+
+        # 检查是否存在
+        if get_user_by_username(db, body.username):
+            raise HTTPException(status_code=409, detail="用户名已存在")
+
+        pwd_hash = bcrypt.hash(body.password)
+        new_user = create_user(db, body.username, pwd_hash, body.email)
+        user_data = new_user.to_dict()
+        return CreateUserResponse(success=True, user=user_data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        return CreateUserResponse(success=False, error=str(e))
+
+@app.get("/api/projects/{project_id}/members")
+async def get_members(project_id: str, request: Request, db: Session = Depends(get_db)):
+    # 仅 owner 可管理/查看完整成员列表（也可放宽到 editor/viewer 自查）
+    user_id = get_current_user(request, db)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="未登录")
+    ensure_membership(db, project_id, None, user_id, required_roles=["owner"]) 
+    members = list_project_members(db, project_id)
+    return {
+        "project_id": project_id,
+        "members": [{"user_id": m.user_id, "role": m.role, "invited_by": m.invited_by, "created_at": m.created_at.isoformat() if m.created_at else None} for m in members]
+    }
+
+@app.post("/api/projects/{project_id}/members")
+async def add_member(project_id: str, body: MemberAddRequest, request: Request, db: Session = Depends(get_db), acc_db: Session = Depends(get_accounts_db)):
+    user_id = get_current_user(request, db)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="未登录")
+    ensure_membership(db, project_id, None, user_id, required_roles=["owner"]) 
+    # 在账号库查找用户
+    target = get_user_by_username(acc_db, body.username)
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    member = get_project_member(db, project_id, target.id)
+    if member:
+        # 已存在则更新角色
+        update_project_member_role(db, project_id, target.id, body.role)
+    else:
+        add_project_member(db, project_id, target.id, body.role, invited_by=user_id)
+    return {"success": True}
+
+@app.patch("/api/projects/{project_id}/members/{target_user_id}")
+async def update_member_role(project_id: str, target_user_id: str, body: MemberRoleUpdateRequest, request: Request, db: Session = Depends(get_db)):
+    user_id = get_current_user(request, db)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="未登录")
+    ensure_membership(db, project_id, None, user_id, required_roles=["owner"]) 
+    ok = update_project_member_role(db, project_id, target_user_id, body.role)
+    if not ok:
+        raise HTTPException(status_code=404, detail="成员不存在")
+    return {"success": True}
+
+@app.delete("/api/projects/{project_id}/members/{target_user_id}")
+async def remove_member_api(project_id: str, target_user_id: str, request: Request, db: Session = Depends(get_db)):
+    user_id = get_current_user(request, db)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="未登录")
+    ensure_membership(db, project_id, None, user_id, required_roles=["owner"]) 
+    ok = remove_project_member(db, project_id, target_user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="成员不存在")
+    return {"success": True}
 
 @app.post("/react_solve", response_model=ChatResponse)
 async def react_solve(request: Request, db: Session = Depends(get_db)):
@@ -262,14 +455,18 @@ async def react_solve(request: Request, db: Session = Depends(get_db)):
                 isError=True
             )
         
-        # 🆕 第四步：创建带项目上下文的Agent实例
-        # 为工具注册器设置项目上下文
-        tool_registry.set_project_context(project_context)
-        
-        # 🆕 创建agent实例
+        # 🆕 权限校验（读写消息等）
+        user_id = get_current_user(request, db)
+        if user_id:
+            # 只要涉及到项目写入动作，要求至少年 editor
+            ensure_membership(db, project_id, project_name, user_id, required_roles=["editor", "owner"])
+
+        # 🆕 第四步：创建带项目上下文的Agent实例（每请求注册器，避免串台）
+        local_registry = create_core_tool_registry(project_context)
+
         agent = EnhancedReActAgent(
             deepseek_client=deepseek_client,
-            tool_registry=tool_registry,
+            tool_registry=local_registry,
             max_iterations=5,  # 🔧 减少最大迭代次数，避免无限循环
             verbose=True,
             enable_memory=True
@@ -394,6 +591,11 @@ async def upload_file(request: Request, file: UploadFile = File(...), db: Sessio
         # 🔧 确保项目ID有值，否则使用项目名称作为标识
         effective_project_id = project_id or project_name or 'default'
         
+        # 权限校验（上传属于写操作）
+        user_id = get_current_user(request, db)
+        if user_id:
+            ensure_membership(db, project_id, project_name, user_id, required_roles=["editor", "owner"])
+
         print(f"📤 接收文件上传: {file.filename}")
         print(f"🏗️ 项目信息: ID={project_id}, Name={project_name}, Effective={effective_project_id}")
         
@@ -404,12 +606,18 @@ async def upload_file(request: Request, file: UploadFile = File(...), db: Sessio
         # 创建临时本地文件
         import tempfile
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
-            # 读取并保存文件内容
-            file_content = await file.read()
-            temp_file.write(file_content)
+            # 分块写入，避免一次性读入内存
+            chunk_size = 1024 * 1024  # 1MB
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                temp_file.write(chunk)
             temp_file_path = temp_file.name
         
         print(f"📁 临时文件保存到: {temp_file_path}")
+        # 计算上传文件大小（字节）
+        uploaded_size = os.path.getsize(temp_file_path)
         
         # 🚀 上传到MinIO (增强版验证)
         minio_path, upload_error = upload_pdf_to_minio(
@@ -421,7 +629,6 @@ async def upload_file(request: Request, file: UploadFile = File(...), db: Sessio
         
         if not minio_path:
             # 清理临时文件
-            import os
             os.unlink(temp_file_path)
             error_detail = f"MinIO上传失败: {upload_error}" if upload_error else "MinIO上传失败"
             print(f"❌ {error_detail}")
@@ -467,7 +674,7 @@ async def upload_file(request: Request, file: UploadFile = File(...), db: Sessio
                     "original_name": file.filename,
                     "local_path": None,  # 不保存临时路径，因为会被删除
                     "minio_path": minio_path,
-                    "file_size": len(file_content),
+                    "file_size": uploaded_size,
                     "mime_type": file.content_type,
                     "extra_data": {
                         "upload_source": "api",
@@ -506,7 +713,6 @@ async def upload_file(request: Request, file: UploadFile = File(...), db: Sessio
             print(f"⚠️ 跳过数据库保存: effective_project_id={effective_project_id}")
         
         # 🧹 清理临时文件
-        import os
         try:
             os.unlink(temp_file_path)
             print(f"🧹 已清理临时文件: {temp_file_path}")
@@ -521,7 +727,7 @@ async def upload_file(request: Request, file: UploadFile = File(...), db: Sessio
             "minio_path": minio_path,  # 这是AI agent将使用的路径
             "project_id": effective_project_id,
             "project_name": project_name,
-            "size": len(file_content),
+            "size": uploaded_size,
             "mimetype": file.content_type,
             "verified": True,  # 标记为已验证
             "verification_details": {
@@ -604,6 +810,11 @@ async def start_stream(request: Request, db: Session = Depends(get_db)):
         if problem:
             project_context['original_query'] = problem
         
+        # 权限校验（触发流式一般也会写消息）
+        user_id = get_current_user(request, db)
+        if user_id:
+            ensure_membership(db, project_id, project_name, user_id, required_roles=["editor", "owner"])
+
         # 生成唯一会话ID
         session_id = str(uuid.uuid4())
         
@@ -828,7 +1039,7 @@ async def stream_thoughts(session_id: str):
                 import concurrent.futures
                 import time  # 确保time在正确位置导入
                 
-                # 使用线程池执行Agent，避免阻塞主事件循环
+        # 使用线程池执行Agent，避免阻塞主事件循环
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(agent._react_loop, full_problem)
                     
@@ -1017,25 +1228,46 @@ async def root():
 # ======================== 🆕 项目管理API ========================
 
 @app.post("/api/projects", response_model=ProjectResponse)
-async def create_project_api(request: ProjectCreateRequest, db: Session = Depends(get_db)):
+async def create_project_api(request: ProjectCreateRequest, http_req: Request, db: Session = Depends(get_db)):
     """创建新项目"""
     try:
+        # 强制鉴权
+        creator_id = get_current_user(http_req, db)
+        if not creator_id:
+            raise HTTPException(status_code=401, detail="未登录")
+
         project = create_project(
             db=db,
             name=request.name,
             project_type=request.type,
             description=request.description
         )
+        # 创建者成为 owner
+        add_project_member(db, project.id, creator_id, "owner", invited_by=creator_id)
         return ProjectResponse(success=True, project=project.to_dict())
     except Exception as e:
         print(f"❌ 创建项目失败: {e}")
         return ProjectResponse(success=False, error=str(e))
 
 @app.get("/api/projects", response_model=ProjectListResponse)
-async def get_projects_api(status: Optional[str] = None, db: Session = Depends(get_db)):
+async def get_projects_api(status: Optional[str] = None, http_req: Request = None, db: Session = Depends(get_db)):
     """获取项目列表"""
     try:
-        projects = get_all_projects(db, status=status)
+        user_id = get_current_user(http_req, db)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="未登录")
+        all_projects = get_all_projects(db, status=status)
+        from database.crud import list_project_members
+        # 管理员可见所有项目
+        if user_is_admin(user_id):
+            projects = all_projects
+        else:
+            visible = []
+            for p in all_projects:
+                members = list_project_members(db, p.id)
+                if any(m.user_id == user_id for m in members):
+                    visible.append(p)
+            projects = visible
         return ProjectListResponse(
             success=True,
             projects=[p.to_dict() for p in projects],
@@ -1046,9 +1278,13 @@ async def get_projects_api(status: Optional[str] = None, db: Session = Depends(g
         return ProjectListResponse(success=False, projects=[], total=0)
 
 @app.get("/api/projects/{project_identifier}/summary", response_model=ProjectSummaryResponse)
-async def get_project_summary_api(project_identifier: str, by_name: bool = False, db: Session = Depends(get_db)):
+async def get_project_summary_api(project_identifier: str, by_name: bool = False, http_req: Request = None, db: Session = Depends(get_db)):
     """获取项目概要信息 - 用于快速加载，支持按ID或名称查询"""
     try:
+        # 鉴权 + 成员检查（viewer 及以上可读）
+        user_id = get_current_user(http_req, db)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="未登录")
         if by_name:
             summary = get_project_summary(db, project_name=project_identifier)
         else:
@@ -1056,6 +1292,10 @@ async def get_project_summary_api(project_identifier: str, by_name: bool = False
         
         if not summary:
             raise HTTPException(status_code=404, detail="项目不存在")
+        # 管理员可绕过成员校验
+        proj_id = summary["project"]["id"]
+        if not user_is_admin(user_id):
+            ensure_membership(db, proj_id, None, user_id, required_roles=["viewer", "editor", "owner"])
         return ProjectSummaryResponse(success=True, data=summary)
     except HTTPException:
         raise
@@ -1067,15 +1307,24 @@ async def get_project_summary_api(project_identifier: str, by_name: bool = False
 async def get_project_files_api(
     project_identifier: str, 
     by_name: bool = False, 
+    http_req: Request = None,
     db: Session = Depends(get_db)
 ):
     """获取项目的所有文件列表 - 支持按ID或名称查询"""
     try:
+        user_id = get_current_user(http_req, db)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="未登录")
         # 🆕 支持按项目名称或ID查询
         if by_name:
             files = get_project_files(db, project_name=project_identifier)
+            proj = get_project_by_name(db, project_identifier)
+            if not user_is_admin(user_id):
+                ensure_membership(db, proj.id if proj else None, None, user_id, required_roles=["viewer", "editor", "owner"])
         else:
             files = get_project_files(db, project_id=project_identifier)
+            if not user_is_admin(user_id):
+                ensure_membership(db, project_identifier, None, user_id, required_roles=["viewer", "editor", "owner"])
         
         return {
             "success": True,
@@ -1093,19 +1342,27 @@ async def get_project_files_api(
 
 
 @app.get("/api/projects/{project_identifier}/current-session", response_model=SessionMessagesResponse)
-async def get_current_session_api(project_identifier: str, by_name: bool = False, limit: int = 20, db: Session = Depends(get_db)):
+async def get_current_session_api(project_identifier: str, by_name: bool = False, limit: int = 20, http_req: Request = None, db: Session = Depends(get_db)):
     """获取项目当前会话的最近消息 - 支持按ID或名称查询"""
     try:
+        user_id = get_current_user(http_req, db)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="未登录")
         # 🆕 支持按项目名称或ID查询
         if by_name:
             current_session = get_current_session(db, project_name=project_identifier)
             if not current_session:
                 current_session = create_new_session(db, project_name=project_identifier)
+            proj = get_project_by_name(db, project_identifier)
+            if not user_is_admin(user_id):
+                ensure_membership(db, proj.id if proj else None, None, user_id, required_roles=["viewer", "editor", "owner"])
             files = get_project_files(db, project_name=project_identifier, session_id=current_session.id)
         else:
             current_session = get_current_session(db, project_id=project_identifier)
             if not current_session:
                 current_session = create_new_session(db, project_id=project_identifier)
+            if not user_is_admin(user_id):
+                ensure_membership(db, project_identifier, None, user_id, required_roles=["viewer", "editor", "owner"])
             files = get_project_files(db, project_id=project_identifier, session_id=current_session.id)
         
         messages, total = get_session_messages(db, current_session.id, limit=limit)
@@ -1147,9 +1404,12 @@ async def get_session_messages_api(
         return {"success": False, "error": str(e)}
 
 @app.delete("/api/projects/{project_identifier}")
-async def delete_project_api(project_identifier: str, by_name: bool = False, db: Session = Depends(get_db)):
+async def delete_project_api(project_identifier: str, by_name: bool = False, http_req: Request = None, db: Session = Depends(get_db)):
     """删除项目 - 支持按ID或名称删除"""
     try:
+        user_id = get_current_user(http_req, db)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="未登录")
         # 🆕 支持按项目名称或ID删除
         if by_name:
             project = get_project(db, project_name=project_identifier)
@@ -1158,6 +1418,8 @@ async def delete_project_api(project_identifier: str, by_name: bool = False, db:
         
         if not project:
             raise HTTPException(status_code=404, detail="项目不存在")
+        # 仅 owner 可删除
+        ensure_membership(db, project.id, None, user_id, required_roles=["owner"])
         
         project_name = project.name
         success = delete_project(db, project.id)
