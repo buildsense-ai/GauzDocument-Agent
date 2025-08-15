@@ -237,6 +237,28 @@ class MinIOUploader:
             logger.error(f"❌ {error_msg}")
             return False, error_msg
     
+    def delete_object_by_path(self, minio_path: str) -> Tuple[bool, Optional[str]]:
+        """
+        通过 minio_path 删除对象，例如: minio://bucket/object_name
+        返回 (是否成功, 错误信息)
+        """
+        if not self.client:
+            return False, "MinIO客户端未初始化"
+        try:
+            if not minio_path or not minio_path.startswith("minio://"):
+                return False, "无效的minio_path"
+            path_parts = minio_path.replace("minio://", "").split("/", 1)
+            if len(path_parts) != 2:
+                return False, "无效的minio_path"
+            bucket_name, object_name = path_parts
+            self.client.remove_object(bucket_name=bucket_name, object_name=object_name)
+            logger.info(f"🗑️ 已从MinIO删除对象: {minio_path}")
+            return True, None
+        except Exception as e:
+            error_msg = f"删除MinIO对象失败: {e}"
+            logger.error(f"❌ {error_msg}")
+            return False, error_msg
+    
     def get_file_info(self, minio_path: str) -> Optional[Dict[str, Any]]:
         """
         获取MinIO中文件的信息

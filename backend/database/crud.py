@@ -391,6 +391,24 @@ def update_file_minio_path(db: Session, file_id: str, minio_path: str) -> bool:
     db.commit()
     return True
 
+def delete_file_record(db: Session, file_id: str) -> bool:
+    """删除单个文件记录，并更新项目统计（不处理MinIO对象删除）"""
+    file_record = db.query(models.ProjectFile).filter(models.ProjectFile.id == file_id).first()
+    if not file_record:
+        return False
+    project_id = file_record.project_id
+    try:
+        db.delete(file_record)
+        db.commit()
+        # 更新项目统计
+        update_project_stats(db, project_id)
+        logger.info(f"🗑️ 已删除文件记录: {file_id}")
+        return True
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ 删除文件记录失败: {file_id} - {e}")
+        return False
+
 # ======================== 数据初始化 ========================
 
 def create_test_project(db: Session) -> models.Project:

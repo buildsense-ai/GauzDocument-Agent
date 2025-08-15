@@ -36,7 +36,8 @@ from database import get_db, Project, ChatSession, ChatMessage, ProjectFile
 from database.crud import (
     create_project, get_project, get_all_projects, get_project_summary, update_project_stats,
     delete_project, get_current_session, create_new_session, save_message, get_session_messages,
-    get_recent_messages, save_file_record, get_project_files, update_file_minio_path, get_project_by_name
+    get_recent_messages, save_file_record, get_project_files, update_file_minio_path, get_project_by_name,
+    delete_file_record
 )
 from database.utils import setup_database, check_database_health
 from fastapi import Depends
@@ -1170,6 +1171,35 @@ async def delete_project_api(project_identifier: str, by_name: bool = False, db:
         raise
     except Exception as e:
         print(f"❌ 删除项目失败: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.delete("/api/files/{file_id}")
+async def delete_file_api(file_id: str, db: Session = Depends(get_db)):
+    """删除单个文件：优先尝试删除MinIO对象，然后删除数据库记录"""
+    try:
+        # 获取文件记录（拿到 minio_path）
+        file_record = db.query(ProjectFile).filter(ProjectFile.id == file_id).first()
+        if not file_record:
+            raise HTTPException(status_code=404, detail="文件不存在")
+
+        # 删除 MinIO 对象（如果存在）
+        if file_record.minio_path:
+            uploader = get_minio_uploader()
+            if uploader:
+                ok, err = uploader.delete_object_by_path(file_record.minio_path)
+                if not ok:
+                    # 打印警告但不阻断数据库删除
+                    print(f"⚠️ 删除MinIO对象失败: {err}")
+
+        # 删除数据库记录
+        if delete_file_record(db, file_id):
+            return {"success": True}
+        else:
+            return {"success": False, "error": "删除文件记录失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 删除文件失败: {e}")
         return {"success": False, "error": str(e)}
 
 # 🆕 保存消息请求模型
