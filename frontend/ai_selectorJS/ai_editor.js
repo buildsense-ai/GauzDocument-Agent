@@ -24,6 +24,8 @@ let currentEditorSelection = {
     originalContent: '',
     modifiedText: ''
 };
+// 预览模式下临时存储所选文本
+let pendingPreviewSelectedText = '';
 
 // --- 工具函数 ---
 
@@ -106,8 +108,8 @@ function initializeAIEditorEventListeners() {
             
             console.log('📝 选中文本:', selectedText, '长度:', selectedText.length);
             
-            // 如果选中了文本且长度>20，显示AI编辑提示气泡（移除上限，支持长文本）
-            if (selectedText.trim() && selectedText.length > 20) {
+            // 触发阈值：至少选中10个字符才弹出AI编辑气泡
+            if (selectedText.trim() && selectedText.length >= 10) {
                 // 检查AI面板是否已经显示
                 const aiCommandPanel = document.getElementById('aiCommandPanel');
                 console.log('🎛️ AI面板状态:', aiCommandPanel ? aiCommandPanel.classList.contains('show') : 'not found');
@@ -176,6 +178,37 @@ function initializeAIEditorEventListeners() {
     
     // 初始化复制/剪切操作检测
     detectCopyPasteOperations();
+
+    // 🆕 预览模式文本选择 -> 弹出AI气泡，并支持无缝切到编辑模式
+    const handlePreviewSelection = (event) => {
+        try {
+            const sel = window.getSelection ? window.getSelection() : null;
+            const selectedText = sel ? sel.toString().trim() : '';
+            if (!selectedText || selectedText.length < 10) return; // 阈值：至少10字
+
+            pendingPreviewSelectedText = selectedText;
+
+            // 计算气泡位置（鼠标位置或选择范围中心）
+            let x = event && event.clientX ? event.clientX : 0;
+            let y = event && event.clientY ? event.clientY : 0;
+            if ((!x && !y) && sel && sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0).cloneRange();
+                const rect = range.getBoundingClientRect();
+                x = rect.left + Math.min(200, Math.max(20, rect.width / 2));
+                y = rect.top + Math.min(200, Math.max(20, rect.height / 2));
+            }
+
+            createAIEditTooltipForPreview(x, y, selectedText);
+        } catch (e) {
+            console.warn('预览选择处理失败:', e);
+        }
+    };
+
+    const previewResultEl = document.getElementById('previewResult');
+    if (previewResultEl) {
+        ['mouseup', 'keyup'].forEach(ev => previewResultEl.addEventListener(ev, handlePreviewSelection));
+        console.log('✅ 预览模式AI选择监听已初始化');
+    }
 }
 
 
@@ -633,6 +666,151 @@ function createAIEditTooltip(x, y) {
             console.log('⏰ 气泡已转换为输入框，取消自动消失');
         }
     }, 5000);
+}
+
+// 🆕 为预览模式创建AI气泡：点击后无缝切到编辑模式并发起AI编辑
+function createAIEditTooltipForPreview(x, y, selectedText) {
+    // 使用独立ID，避免与编辑模式气泡冲突
+    const existingTooltip = document.getElementById('aiPreviewEditTooltip');
+    if (existingTooltip && existingTooltip.parentNode) existingTooltip.parentNode.removeChild(existingTooltip);
+
+    const tooltip = document.createElement('div');
+    tooltip.id = 'aiPreviewEditTooltip';
+    tooltip.className = 'ai-edit-tooltip';
+    tooltip.innerHTML = `
+        <div class="tooltip-content">
+            <span class="tooltip-icon">🤖</span>
+            <span class="tooltip-text">AI编辑</span>
+        </div>
+    `;
+    tooltip.style.left = (x || 20) + 'px';
+    tooltip.style.top = ((y || 20) - 40) + 'px';
+    document.body.appendChild(tooltip);
+    setTimeout(() => tooltip.classList.add('show'), 10);
+
+    // 5秒未点击自动消失（仅预览气泡）
+    const autoTimer = setTimeout(() => {
+        if (tooltip && tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
+    }, 5000);
+
+    tooltip.addEventListener('click', async () => {
+        try {
+            await startAIEditFromPreview(selectedText, { x: x || (window.innerWidth/2), y: (y || 140) });
+        } finally {
+            clearTimeout(autoTimer);
+            if (tooltip && tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
+        }
+    });
+}
+
+// 🆕 从预览模式启动AI编辑：切到编辑模式，定位并选中文本，触发AI面板
+async function startAIEditFromPreview(selectedText, pos) {
+    if (!selectedText || !selectedText.trim()) return;
+    if (typeof window.switchToEditMode === 'function') {
+        window.switchToEditMode();
+    }
+
+    // 等待编辑器可用
+    const editor = await waitForElement(() => document.getElementById('markdownEditor'), 50, 40);
+    if (!editor) {
+        showNotification && showNotification('无法打开编辑器', 'error');
+        return;
+    }
+
+    // 若编辑器还未填充内容，再等待一轮
+    if (!editor.value || !editor.value.trim()) {
+        await delay(200);
+    }
+
+    const content = editor.value || '';
+    // 尝试在编辑器内容中定位选中文本
+    let startIndex = content.indexOf(selectedText);
+    if (startIndex < 0) {
+        // 改为“带映射”的空白归一化精确定位，避免误命中上一段文本
+        const match = findIndexWithWhitespaceMap(content, selectedText);
+        if (match && match.start >= 0) {
+            startIndex = match.start;
+        }
+    }
+
+    if (startIndex >= 0) {
+        const endIndex = startIndex + selectedText.length;
+        editor.focus();
+        editor.setSelectionRange(startIndex, endIndex);
+        // 直接使用弹窗形式的AI编辑输入（不影响原编辑模式气泡）
+        const px = (pos && pos.x) || Math.round(window.innerWidth / 2);
+        const py = (pos && pos.y) || 140;
+        if (typeof transformTooltipToInput === 'function') {
+            transformTooltipToInput(null, px, py);
+            return;
+        }
+    }
+
+    // 找不到也启动AI面板（降级）：把选中文本塞进临时选择结构
+    currentEditorSelection = {
+        text: selectedText,
+        start: 0,
+        end: 0,
+        originalContent: content,
+        editorId: 'markdownEditor',
+        modifiedText: ''
+    };
+    // Fallback：调用弹窗输入（即使未能选中编辑器内文本）
+    const px = (pos && pos.x) || Math.round(window.innerWidth / 2);
+    const py = (pos && pos.y) || 140;
+    if (typeof transformTooltipToInput === 'function') {
+        transformTooltipToInput(null, px, py);
+    }
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+async function waitForElement(getter, interval = 50, maxTries = 20) {
+    let tries = 0;
+    return new Promise(resolve => {
+        const timer = setInterval(() => {
+            const el = getter();
+            if (el || tries++ >= maxTries) {
+                clearInterval(timer);
+                resolve(el || null);
+            }
+        }, interval);
+    });
+}
+
+// 将字符串按空白压缩为单空格，同时构建从“压缩后索引”到“原始索引”的映射
+function normalizeWithMap(input) {
+    const normChars = [];
+    const idxMap = [];
+    let prevIsSpace = false;
+    for (let i = 0; i < input.length; i++) {
+        const ch = input[i];
+        if (/\s/.test(ch)) {
+            if (!prevIsSpace) {
+                normChars.push(' ');
+                idxMap.push(i);
+                prevIsSpace = true;
+            }
+        } else {
+            normChars.push(ch);
+            idxMap.push(i);
+            prevIsSpace = false;
+        }
+    }
+    return { norm: normChars.join('').trim(), map: idxMap };
+}
+
+// 在考虑空白差异的前提下查找选区在原文中的精确起止位置
+function findIndexWithWhitespaceMap(haystack, needle) {
+    if (!haystack || !needle) return null;
+    const H = normalizeWithMap(haystack);
+    const N = normalizeWithMap(needle);
+    if (!N.norm) return null;
+    const pos = H.norm.indexOf(N.norm);
+    if (pos < 0) return null;
+    const start = H.map[pos] ?? 0;
+    const endPos = pos + N.norm.length - 1;
+    const end = (endPos < H.map.length ? H.map[endPos] : haystack.length - 1) + 1;
+    return { start, end };
 }
 
 // 将气泡转换为输入框 - 全面保护版本
