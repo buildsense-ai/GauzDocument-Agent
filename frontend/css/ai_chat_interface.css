@@ -76,7 +76,6 @@ body {
     background: var(--bg-tertiary);
     color: var(--text-primary);
     height: 100vh;
-    overflow: hidden;
     transition: background-color 0.3s ease, color 0.3s ease;
 }
 
@@ -1227,12 +1226,12 @@ body {
     border-left: 1px solid var(--border-color);
     box-shadow: var(--shadow-lg);
     transition: all 0.3s ease;
+    min-width: 0;
 }
 
 /* 预览模式下，预览侧边栏占60%宽度并显示 */
 .container.preview-mode .preview-sidebar {
     display: flex;
-    flex: 0 0 60%;
     width: 60%;
     height: 100vh;
 }
@@ -1573,10 +1572,12 @@ body {
 
 .preview-sidebar .preview-content {
     flex: 1;
-    overflow: hidden;
+    overflow-y: scroll; /* 强制显示滚动条 */
     position: relative;
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    min-height: 0;
 }
 
 .preview-loading {
@@ -1696,7 +1697,9 @@ body {
 .editor-content {
     flex: 1;
     display: flex;
-    overflow: hidden;
+    overflow-y: scroll; /* 强制显示滚动条 */
+    min-width: 0;
+    min-height: 0;
 }
 
 .editor-pane {
@@ -1754,10 +1757,73 @@ body {
 
 .preview-sidebar .preview-result {
     flex: 1;
-    overflow-y: auto;
+    overflow: auto; /* 允许双向滚动作为兜底 */
     padding: 16px;
     background: var(--bg-primary);
     font-size: 14px;
+    width: 100%;
+    word-break: break-word;       /* 防长词溢出 */
+    overflow-wrap: anywhere;      /* 兼容新标准 */
+}
+
+/* 始终显示并美化预览/编辑区域滚动条（跨浏览器） */
+.preview-sidebar .preview-result,
+.preview-sidebar .markdown-editor {
+    scrollbar-gutter: stable; /* 防止滚动条出现/消失引发布局抖动 */
+    scrollbar-width: thin;    /* Firefox */
+    scrollbar-color: var(--border-color) transparent; /* Firefox */
+}
+
+/* Chrome/Edge/WebKit 滚动条样式 */
+.preview-sidebar .preview-result::-webkit-scrollbar,
+.preview-sidebar .markdown-editor::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+.preview-sidebar .preview-result::-webkit-scrollbar-track,
+.preview-sidebar .markdown-editor::-webkit-scrollbar-track {
+    background: transparent;
+}
+.preview-sidebar .preview-result::-webkit-scrollbar-thumb,
+.preview-sidebar .markdown-editor::-webkit-scrollbar-thumb {
+    background-color: rgba(136, 136, 136, 0.8);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+.preview-sidebar .preview-result::-webkit-scrollbar-thumb:hover,
+.preview-sidebar .markdown-editor::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(136, 136, 136, 1);
+}
+
+/* 约束预览内媒体元素宽度，防止横向溢出屏幕 */
+.preview-sidebar #previewResult {
+    max-width: 100%;
+    overflow: auto; /* 双向兜底 */
+    box-sizing: border-box;
+}
+.preview-sidebar #previewResult * {
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.preview-sidebar .preview-result img,
+.preview-sidebar .preview-result canvas,
+.preview-sidebar .preview-result svg,
+.preview-sidebar .preview-result video {
+    max-width: 100%;
+    height: auto;
+}
+
+/* 让表格在较窄视口下可横向滚动 */
+.preview-sidebar .preview-result table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+}
+
+/* 代码块保留横向滚动，避免打断代码布局 */
+.preview-sidebar .preview-result pre {
+    overflow-x: auto;
 }
 
 /* 版本预览头部样式 */
@@ -1782,7 +1848,9 @@ body {
     flex: 1;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow-y: scroll; /* 强制显示滚动条 */
+    min-width: 0;
+    min-height: 0;
 }
 
 .preview-sidebar .editor-pane {
@@ -1790,7 +1858,9 @@ body {
     display: flex;
     flex-direction: column;
     border-bottom: 1px solid var(--border-color);
-    overflow: hidden;
+    overflow-y: scroll; /* 强制显示滚动条 */
+    min-width: 0;
+    min-height: 0;
 }
 
 .preview-sidebar .editor-pane:last-child {

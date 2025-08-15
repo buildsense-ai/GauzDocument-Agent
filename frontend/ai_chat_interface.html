@@ -268,7 +268,7 @@
                     <p id="previewErrorMsg">无法获取文档内容</p>
                     <button class="retry-btn" onclick="refreshPreview()">重试</button>
                 </div>
-                <div id="previewResult" class="preview-result" style="display: none;">
+                <div id="previewResult" class="preview-result" style="display: none; max-width: 100%; box-sizing: border-box; overflow: auto;">
                     <!-- 渲染的Markdown内容将显示在这里 -->
                 </div>
             </div>
@@ -451,6 +451,61 @@
     <script src="libs/filehistory.js"></script>
     <script src="ai_selectorJS/ai_editor.js"></script>
     <script src="ai_chat_script.js"></script>
+    <script>
+        // 记忆并恢复预览/编辑滚动位置（纵向+横向，比例映射），不改动 ai_chat_script.js
+        (function () {
+            const getState = (el) => {
+                if (!el) return { top: 0, left: 0, ratioY: 0, ratioX: 0 };
+                const maxY = Math.max(el.scrollHeight - el.clientHeight, 1);
+                const maxX = Math.max(el.scrollWidth - el.clientWidth, 1);
+                const top = el.scrollTop || 0;
+                const left = el.scrollLeft || 0;
+                return { top, left, ratioY: top / maxY, ratioX: left / maxX };
+            };
+
+            const restore = (el, state) => {
+                if (!el || !state) return;
+                const maxY = Math.max(el.scrollHeight - el.clientHeight, 0);
+                const maxX = Math.max(el.scrollWidth - el.clientWidth, 0);
+                if (maxY > 0) el.scrollTop = Math.round((state.ratioY || 0) * maxY);
+                if (maxX > 0) el.scrollLeft = Math.round((state.ratioX || 0) * maxX);
+            };
+
+            let lastPreviewScroll = { top: 0, left: 0, ratioY: 0, ratioX: 0 };
+            let lastEditorScroll = { top: 0, left: 0, ratioY: 0, ratioX: 0 };
+
+            const originalSwitchToEdit = window.switchToEditMode;
+            const originalSwitchToPreview = window.switchToPreviewMode;
+
+            window.switchToEditMode = function () {
+                // 进入编辑前记录预览内容区滚动（精确到 #previewResult，包含横向滚动）
+                const previewResult = document.getElementById('previewResult');
+                lastPreviewScroll = getState(previewResult);
+
+                if (typeof originalSwitchToEdit === 'function') {
+                    originalSwitchToEdit();
+                }
+
+                // 尝试把编辑器滚动到与预览相近的位置（含横向）
+                requestAnimationFrame(() => restore(document.getElementById('markdownEditor'), lastPreviewScroll));
+                setTimeout(() => restore(document.getElementById('markdownEditor'), lastPreviewScroll), 200);
+            };
+
+            window.switchToPreviewMode = function () {
+                // 进入预览前记录编辑器滚动（含横向）
+                const editorEl = document.getElementById('markdownEditor');
+                lastEditorScroll = getState(editorEl);
+
+                if (typeof originalSwitchToPreview === 'function') {
+                    originalSwitchToPreview();
+                }
+
+                // 尝试把预览滚动到与编辑相近的位置（精确到 #previewResult，含横向）
+                requestAnimationFrame(() => restore(document.getElementById('previewResult'), lastEditorScroll));
+                setTimeout(() => restore(document.getElementById('previewResult'), lastEditorScroll), 200);
+            };
+        })();
+    </script>
 </body>
 
 </html>
